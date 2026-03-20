@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "browser-automation": {
+      "command": "uv",
+      "args": [
+        "--directory",
+        "/home/kedar/Desktop/Projects/use_browser",
+        "run",
+        "main.py"
+      ]
+    }
+  }
+}

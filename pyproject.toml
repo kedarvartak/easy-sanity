@@ -1,0 +1,10 @@
+[project]
+name = "use-browser"
+version = "0.1.0"
+description = "Free browser automation MCP server using IDE LLMs - no API keys required!"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "mcp>=1.26.0",
+    "playwright>=1.58.0",
+]
