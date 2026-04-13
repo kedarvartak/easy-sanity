@@ -1,4 +1,4 @@
-# Free Browser Automation MCP Server
+# Easy Sanity
 
 A completely free browser automation MCP server that uses your IDE's built-in LLM - no API keys required!
 
