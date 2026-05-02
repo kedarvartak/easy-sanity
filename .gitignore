@@ -56,3 +56,5 @@ uv.lock
 
 # Python version
 .python-version
+
+tasks.json

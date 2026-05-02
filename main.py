@@ -264,6 +264,53 @@ browser_state = BrowserState()
 
 # --- Browser Tools ---
 
+def _browser_not_started_error() -> str:
+    return json.dumps({"status": "error", "message": "Browser not started"}, indent=2)
+
+
+async def _resolve_field_locator(field: str):
+    """
+    Resolve a human-friendly field description to a Playwright locator.
+
+    Tries accessibility-first strategies before falling back to common attributes.
+    """
+    page = browser_state.page
+    if page is None:
+        return None
+
+    strategies = [
+        ("label", page.get_by_label(field, exact=False).first),
+        ("placeholder", page.get_by_placeholder(field, exact=False).first),
+        ("text", page.get_by_text(field, exact=False).first),
+        ("name", page.locator(f'[name="{field}"]').first),
+        ("id", page.locator(f'#{field}').first),
+        ("data-testid", page.locator(f'[data-testid="{field}"]').first),
+    ]
+
+    lowered = field.lower()
+    if lowered != field:
+        strategies.extend([
+            ("name_ci", page.locator(
+                f'input[name="{lowered}"], textarea[name="{lowered}"], select[name="{lowered}"]'
+            ).first),
+            ("id_ci", page.locator(f'#{lowered}').first),
+            ("placeholder_ci", page.get_by_placeholder(lowered, exact=False).first),
+        ])
+
+    for strategy_name, locator in strategies:
+        if await locator.count() > 0:
+            return strategy_name, locator
+
+    fallback = page.locator(
+        f'input[aria-label*="{field}" i], textarea[aria-label*="{field}" i], '
+        f'select[aria-label*="{field}" i], input[placeholder*="{field}" i], '
+        f'textarea[placeholder*="{field}" i]'
+    ).first
+    if await fallback.count() > 0:
+        return "attribute_contains", fallback
+
+    return None
+
 @mcp.tool()
 async def browser_start(task: str, headless: bool = False) -> str:
     """
@@ -387,6 +434,213 @@ async def browser_navigate(url: str) -> str:
 
 
 @mcp.tool()
+async def browser_find_element(description: str, limit: int = 5) -> str:
+    """
+    Find likely interactive elements that match a natural-language description.
+
+    Args:
+        description: Human description such as "email field", "login button", or "search input".
+        limit: Max number of matches to return (default: 5).
+
+    Returns:
+        Ranked candidate elements with suggested selector hints.
+    """
+    if not browser_state.page:
+        return _browser_not_started_error()
+
+    try:
+        candidates = await browser_state.page.evaluate(
+            """
+            ({ description, limit }) => {
+                const normalizedDescription = description.toLowerCase().trim();
+                const tokens = normalizedDescription.split(/\\s+/).filter(Boolean);
+                const selectors = 'a, button, input, select, textarea, [role], [aria-label], label';
+                const elements = Array.from(document.querySelectorAll(selectors));
+
+                function getLabelText(el) {
+                    if (el.labels && el.labels.length) {
+                        return Array.from(el.labels)
+                            .map((label) => label.innerText || label.textContent || '')
+                            .join(' ')
+                            .trim();
+                    }
+                    if (el.id) {
+                        const label = document.querySelector(`label[for="${el.id}"]`);
+                        if (label) {
+                            return (label.innerText || label.textContent || '').trim();
+                        }
+                    }
+                    return '';
+                }
+
+                function buildCandidate(el, index) {
+                    const text = (el.innerText || el.textContent || '').trim();
+                    const placeholder = el.getAttribute('placeholder') || '';
+                    const ariaLabel = el.getAttribute('aria-label') || '';
+                    const name = el.getAttribute('name') || '';
+                    const id = el.id || '';
+                    const role = el.getAttribute('role') || '';
+                    const type = el.getAttribute('type') || '';
+                    const label = getLabelText(el);
+                    const haystack = [
+                        text,
+                        placeholder,
+                        ariaLabel,
+                        name,
+                        id,
+                        role,
+                        type,
+                        label,
+                        el.tagName.toLowerCase(),
+                    ].join(' ').toLowerCase();
+
+                    let score = 0;
+                    if (haystack.includes(normalizedDescription)) {
+                        score += 8;
+                    }
+                    for (const token of tokens) {
+                        if (haystack.includes(token)) {
+                            score += 2;
+                        }
+                    }
+                    if (text.toLowerCase() === normalizedDescription) {
+                        score += 4;
+                    }
+                    if (label.toLowerCase().includes(normalizedDescription)) {
+                        score += 4;
+                    }
+                    if ((ariaLabel || placeholder).toLowerCase().includes(normalizedDescription)) {
+                        score += 3;
+                    }
+
+                    return {
+                        index,
+                        score,
+                        tag: el.tagName.toLowerCase(),
+                        role,
+                        type,
+                        text: text.substring(0, 120),
+                        label: label.substring(0, 120),
+                        placeholder: placeholder.substring(0, 120),
+                        aria_label: ariaLabel.substring(0, 120),
+                        name,
+                        id,
+                    };
+                }
+
+                return elements
+                    .map(buildCandidate)
+                    .filter((item) => item.score > 0)
+                    .sort((a, b) => b.score - a.score)
+                    .slice(0, limit);
+            }
+            """,
+            {"description": description, "limit": limit},
+        )
+
+        browser_state.action_history.append({
+            "action": "find_element",
+            "description": description,
+            "matches": len(candidates),
+        })
+
+        return json.dumps({
+            "status": "success",
+            "description": description,
+            "matches": candidates,
+            "message": "Use the returned label, text, role, id, or name with higher-level browser tools.",
+        }, indent=2)
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+
+@mcp.tool()
+async def browser_click_by_role(role: str, name: str, exact: bool = False) -> str:
+    """
+    Click an element using accessible role and name.
+
+    Args:
+        role: Accessible role such as "button", "link", or "textbox".
+        name: Visible or accessible name of the element.
+        exact: Whether the name match must be exact.
+
+    Returns:
+        Confirmation and current URL.
+    """
+    if not browser_state.page:
+        return _browser_not_started_error()
+
+    try:
+        locator = browser_state.page.get_by_role(role, name=name, exact=exact).first
+        await locator.click()
+        await asyncio.sleep(1)
+
+        browser_state.action_history.append({
+            "action": "click_by_role",
+            "role": role,
+            "name": name,
+            "exact": exact,
+        })
+
+        return json.dumps({
+            "status": "success",
+            "message": f"Clicked {role} named '{name}'",
+            "url": browser_state.page.url,
+        }, indent=2)
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+
+@mcp.tool()
+async def browser_fill(field: str, text: str, press_enter: bool = False) -> str:
+    """
+    Fill an input using a human-friendly field description.
+
+    Args:
+        field: Label, placeholder, name, or identifier for the input.
+        text: Value to type into the field.
+        press_enter: Press Enter after filling the field.
+
+    Returns:
+        Confirmation of which matching strategy was used.
+    """
+    if not browser_state.page:
+        return _browser_not_started_error()
+
+    try:
+        resolved = await _resolve_field_locator(field)
+        if not resolved:
+            return json.dumps({
+                "status": "error",
+                "message": f"Could not find a field matching '{field}'. Try browser_find_element first."
+            }, indent=2)
+
+        strategy_name, locator = resolved
+        await locator.click()
+        await locator.fill(text)
+        if press_enter:
+            await locator.press("Enter")
+            await asyncio.sleep(1)
+
+        browser_state.action_history.append({
+            "action": "fill",
+            "field": field,
+            "strategy": strategy_name,
+            "text": text,
+        })
+
+        return json.dumps({
+            "status": "success",
+            "message": f"Filled field '{field}'",
+            "field": field,
+            "matched_by": strategy_name,
+            "pressed_enter": press_enter,
+        }, indent=2)
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+
+@mcp.tool()
 async def browser_click(
     selector: Optional[str] = None,
     text: Optional[str] = None,
@@ -406,7 +660,7 @@ async def browser_click(
         Confirmation and updated URL.
     """
     if not browser_state.page:
-        return json.dumps({"status": "error", "message": "Browser not started"}, indent=2)
+        return _browser_not_started_error()
 
     try:
         if element_index is not None:
@@ -449,10 +703,11 @@ async def browser_type(selector: str, text: str, press_enter: bool = False) -> s
         Confirmation of the typing action.
     """
     if not browser_state.page:
-        return json.dumps({"status": "error", "message": "Browser not started"}, indent=2)
+        return _browser_not_started_error()
 
     try:
-        await browser_state.page.fill(selector, text)
+        await browser_state.page.click(selector)
+        await browser_state.page.type(selector, text, delay=50)
 
         if press_enter:
             await browser_state.page.press(selector, "Enter")
@@ -482,7 +737,7 @@ async def browser_scroll(direction: Literal["down", "up"] = "down", amount: int 
         Confirmation.
     """
     if not browser_state.page:
-        return json.dumps({"status": "error", "message": "Browser not started"}, indent=2)
+        return _browser_not_started_error()
 
     try:
         scroll_amount = amount if direction == "down" else -amount
@@ -507,7 +762,7 @@ async def browser_extract(selector: str) -> str:
         The extracted text, or an error if not found.
     """
     if not browser_state.page:
-        return json.dumps({"status": "error", "message": "Browser not started"}, indent=2)
+        return _browser_not_started_error()
 
     try:
         element = await browser_state.page.query_selector(selector)
@@ -534,7 +789,7 @@ async def browser_wait(seconds: int = 2) -> str:
         Confirmation after waiting.
     """
     if not browser_state.page:
-        return json.dumps({"status": "error", "message": "Browser not started"}, indent=2)
+        return _browser_not_started_error()
 
     try:
         await asyncio.sleep(seconds)
