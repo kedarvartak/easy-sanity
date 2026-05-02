@@ -238,15 +238,33 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                         return '';
                     }
 
+                    function getAssociatedControl(el) {
+                        if (el.tagName.toLowerCase() === 'label') {
+                            if (el.control) {
+                                return el.control;
+                            }
+                            const forId = el.getAttribute('for');
+                            if (forId) {
+                                return document.getElementById(forId);
+                            }
+                        }
+                        return null;
+                    }
+
                     function buildCandidate(el, index) {
+                        const associatedControl = getAssociatedControl(el);
+                        const targetEl = associatedControl || el;
+                        const targetTag = targetEl.tagName.toLowerCase();
+                        const targetType = targetEl.getAttribute('type') || '';
+                        const isLabelOnly = el.tagName.toLowerCase() === 'label' && !!associatedControl;
                         const text = (el.innerText || el.textContent || '').trim();
-                        const placeholder = el.getAttribute('placeholder') || '';
-                        const ariaLabel = el.getAttribute('aria-label') || '';
-                        const name = el.getAttribute('name') || '';
-                        const id = el.id || '';
-                        const role = el.getAttribute('role') || '';
-                        const type = el.getAttribute('type') || '';
-                        const label = getLabelText(el);
+                        const placeholder = targetEl.getAttribute('placeholder') || '';
+                        const ariaLabel = targetEl.getAttribute('aria-label') || '';
+                        const name = targetEl.getAttribute('name') || '';
+                        const id = targetEl.id || '';
+                        const role = targetEl.getAttribute('role') || '';
+                        const type = targetType;
+                        const label = associatedControl ? text : getLabelText(el);
                         const haystack = [
                             text,
                             placeholder,
@@ -256,7 +274,7 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                             role,
                             type,
                             label,
-                            el.tagName.toLowerCase(),
+                            targetTag,
                         ].join(' ').toLowerCase();
 
                         let score = 0;
@@ -277,19 +295,29 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                         if ((ariaLabel || placeholder).toLowerCase().includes(normalizedDescription)) {
                             score += 3;
                         }
+                        if (['input', 'textarea', 'select', 'button', 'a'].includes(targetTag)) {
+                            score += 3;
+                        }
+                        if (isLabelOnly) {
+                            score -= 4;
+                        }
+                        if (associatedControl && label.toLowerCase().includes(normalizedDescription)) {
+                            score += 5;
+                        }
 
                         return {
                             index,
                             score,
-                            tag: el.tagName.toLowerCase(),
+                            tag: targetTag,
                             role,
                             type,
-                            text: text.substring(0, 120),
+                            text: (associatedControl ? (targetEl.innerText || targetEl.textContent || '') : text).substring(0, 120),
                             label: label.substring(0, 120),
                             placeholder: placeholder.substring(0, 120),
                             aria_label: ariaLabel.substring(0, 120),
                             name,
                             id,
+                            matched_via_label: !!associatedControl,
                         };
                     }
 
