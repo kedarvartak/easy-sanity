@@ -20,3 +20,20 @@ FIND_ELEMENT_RESULT_MESSAGE = (
 FILL_FIELD_NOT_FOUND_TEMPLATE = (
     "Could not find a field matching '{field}'. Try browser_find_element first."
 )
+
+
+TASK_WIZARD_PROMPT_TEMPLATE = """Complete the following browser sanity task:
+
+Goal: {goal}
+
+Suggested structure:
+1. Call browser_start with a clear task name.
+2. Navigate to {start_url}.
+3. Use browser_get_state to inspect the page before acting.
+4. Perform the required interactions step by step.
+5. Use assertions or explicit verification steps to confirm the expected outcome.
+6. End with browser_stop and summarize whether the task passed.
+
+Suggested task prompt:
+{task_prompt}
+"""

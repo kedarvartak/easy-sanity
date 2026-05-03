@@ -6,7 +6,8 @@ from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.prompts import Prompt
 
-from prompts import TASK_EXECUTION_PROMPT_TEMPLATE
+from prompts import TASK_EXECUTION_PROMPT_TEMPLATE, TASK_WIZARD_PROMPT_TEMPLATE
+from settings import SAMPLE_TASKS_FILE
 
 
 TASKS_FILE = Path(__file__).parent / "tasks.json"
@@ -42,6 +43,14 @@ def save_profiles_to_disk(profiles: dict[str, dict]) -> None:
         json.dump(profiles, f, indent=2)
 
 
+def load_sample_tasks() -> dict[str, dict]:
+    """Load bundled sample tasks for onboarding."""
+    if SAMPLE_TASKS_FILE.exists():
+        with open(SAMPLE_TASKS_FILE) as f:
+            return json.load(f)
+    return {}
+
+
 def extract_placeholders(prompt: str) -> list[str]:
     """Extract ordered unique placeholder names from a task template."""
     seen = set()
@@ -61,6 +70,93 @@ def infer_secret_variables(placeholders: list[str]) -> list[str]:
 
 def _sanitize_name(name: str) -> str:
     return "".join(c if c.isalnum() or c == "_" else "_" for c in name).lower()
+
+
+def build_task_wizard_prompt(goal: str, start_url: str, include_placeholders: bool, include_assertions: bool) -> str:
+    base_url = "{{base_url}}" if include_placeholders else (start_url or "https://example.com")
+    email_value = "{{email}}" if include_placeholders else "user@example.com"
+    password_value = "{{password}}" if include_placeholders else "replace-me"
+
+    lines = [
+        f"1. Call browser_start with task \"{goal}\".",
+        f"2. Call browser_navigate to {base_url}.",
+        "3. Call browser_get_state to inspect the page and identify the next actionable elements.",
+        "4. Use browser_find_element, browser_fill, browser_click_by_role, browser_click, or browser_type as needed.",
+        f"5. If login is required, use {email_value} and {password_value} only through the appropriate fields.",
+    ]
+
+    if include_assertions:
+        lines.extend(
+            [
+                "6. Use assertions such as assert_text_visible, assert_url_contains, or assert_element_exists to verify success.",
+                "7. Call browser_stop with a clear pass/fail summary.",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                "6. Clearly verify the expected final state using page state or extracted content.",
+                "7. Call browser_stop with a clear summary.",
+            ]
+        )
+
+    return "\n".join(lines)
+
+
+def lint_task_prompt(prompt: str) -> dict[str, list[str] | int]:
+    lowered = prompt.lower()
+    warnings: list[str] = []
+    suggestions: list[str] = []
+    strengths: list[str] = []
+
+    has_steps = bool(re.search(r"(^|\n)\s*(step\s+\d+|[0-9]+\.)", prompt, re.IGNORECASE))
+    has_assertions = any(word in lowered for word in ("assert", "verify", "confirm", "check", "ensure"))
+    has_url = "http://" in lowered or "https://" in lowered or "{{base_url}}" in lowered
+    has_cleanup = "browser_stop" in prompt or "stop with" in lowered or "summary" in lowered
+    placeholders = extract_placeholders(prompt)
+
+    if has_steps:
+        strengths.append("Task has step-like structure.")
+    else:
+        warnings.append("Task is unstructured. Consider numbered steps or explicit phases.")
+
+    if has_assertions:
+        strengths.append("Task includes verification or assertion language.")
+    else:
+        warnings.append("Task lacks explicit verification. Add assert/verify/confirm/check steps.")
+
+    if has_url:
+        strengths.append("Task includes a concrete starting URL or {{base_url}} placeholder.")
+    else:
+        warnings.append("Task does not specify a starting URL or base_url placeholder.")
+
+    if has_cleanup:
+        strengths.append("Task includes an explicit completion or cleanup expectation.")
+    else:
+        suggestions.append("Add a final browser_stop summary step so the run ends cleanly.")
+
+    if len(prompt.strip()) < 80:
+        warnings.append("Task prompt is very short and may be too vague for reliable execution.")
+
+    if any(word in lowered for word in ("password", "token", "secret", "api key", "apikey")) and "{{" not in prompt:
+        warnings.append("Task appears to include secret-like values without placeholders.")
+        suggestions.append("Replace credentials or secrets with placeholders like {{password}} or {{api_key}}.")
+
+    if "{{" in prompt and not placeholders:
+        warnings.append("Task contains malformed placeholder syntax.")
+
+    if placeholders:
+        strengths.append(f"Task uses reusable placeholders: {', '.join(placeholders)}.")
+
+    quality_score = 100 - (len(warnings) * 15) - (0 if has_assertions else 10) - (0 if has_steps else 10)
+    quality_score = max(0, min(100, quality_score))
+
+    return {
+        "warnings": warnings,
+        "suggestions": suggestions,
+        "strengths": strengths,
+        "quality_score": quality_score,
+    }
 
 
 def _parse_json_object(value: str, field_name: str) -> dict[str, str]:
@@ -275,6 +371,142 @@ def register_task_tools(mcp: FastMCP) -> None:
         )
 
     @mcp.tool()
+    def sample_tasks_list() -> str:
+        """
+        List the bundled sample tasks available for onboarding and quick smoke testing.
+
+        Returns:
+            Summary of sample task names, descriptions, and variable placeholders.
+        """
+        sample_tasks = load_sample_tasks()
+        items = [
+            {
+                "name": name,
+                "description": task.get("description", ""),
+                "variables": task.get("variables", extract_placeholders(task.get("prompt", ""))),
+                "secret_variables": task.get("secret_variables", []),
+            }
+            for name, task in sample_tasks.items()
+        ]
+        return json.dumps(
+            {
+                "status": "success",
+                "count": len(items),
+                "tasks": items,
+            },
+            indent=2,
+        )
+
+    @mcp.tool()
+    def sample_tasks_import(names_json: str = "[]", overwrite: bool = False) -> str:
+        """
+        Import bundled sample tasks into tasks.json and register them as prompts.
+
+        Args:
+            names_json: Optional JSON array of sample task names to import. Imports all if empty.
+            overwrite: Whether to overwrite existing tasks with the same names.
+
+        Returns:
+            Summary of imported, skipped, and missing sample task names.
+        """
+        sample_tasks = load_sample_tasks()
+        try:
+            requested_names = json.loads(names_json) if names_json.strip() else []
+        except json.JSONDecodeError as e:
+            return json.dumps(
+                {"status": "error", "message": f"names_json must be valid JSON: {e.msg}"},
+                indent=2,
+            )
+
+        if not isinstance(requested_names, list):
+            return json.dumps(
+                {"status": "error", "message": "names_json must be a JSON array"},
+                indent=2,
+            )
+
+        selected_names = [str(name) for name in requested_names] if requested_names else sorted(sample_tasks.keys())
+        tasks = load_tasks_from_disk()
+        imported: list[str] = []
+        skipped: list[str] = []
+        missing: list[str] = []
+
+        for name in selected_names:
+            if name not in sample_tasks:
+                missing.append(name)
+                continue
+            if name in tasks and not overwrite:
+                skipped.append(name)
+                continue
+
+            task = sample_tasks[name]
+            tasks[name] = {
+                "prompt": task["prompt"],
+                "description": task.get("description", f"Sample task: {name}"),
+                "variables": task.get("variables", extract_placeholders(task["prompt"])),
+                "secret_variables": task.get("secret_variables", []),
+            }
+            mcp._prompt_manager._prompts.pop(name, None)
+            register_task_as_prompt(mcp, name, tasks[name]["prompt"], tasks[name]["description"])
+            imported.append(name)
+
+        save_tasks_to_disk(tasks)
+        return json.dumps(
+            {
+                "status": "success",
+                "imported": imported,
+                "skipped": skipped,
+                "missing": missing,
+                "message": "Sample task import complete.",
+            },
+            indent=2,
+        )
+
+    @mcp.tool()
+    def task_wizard_template(
+        goal: str,
+        start_url: str = "",
+        task_name: str = "",
+        include_placeholders: bool = True,
+        include_assertions: bool = True,
+    ) -> str:
+        """
+        Generate a starter template for authoring a new browser automation task.
+
+        Args:
+            goal: Human description of what the task should accomplish.
+            start_url: Optional starting URL or page path.
+            task_name: Optional suggested task name. If omitted, one will be inferred.
+            include_placeholders: Whether to use reusable placeholders such as {{base_url}} and {{password}}.
+            include_assertions: Whether to include explicit assertion guidance in the template.
+
+        Returns:
+            A structured task draft plus metadata to help the user save it.
+        """
+        safe_name = _sanitize_name(task_name or goal[:40] or "browser_task")
+        suggested_prompt = build_task_wizard_prompt(goal, start_url, include_placeholders, include_assertions)
+        variables = extract_placeholders(suggested_prompt)
+        secret_variables = infer_secret_variables(variables)
+        template_preview = TASK_WIZARD_PROMPT_TEMPLATE.format(
+            goal=goal,
+            start_url=start_url or ("{{base_url}}" if include_placeholders else "https://example.com"),
+            task_prompt=suggested_prompt,
+        )
+
+        return json.dumps(
+            {
+                "status": "success",
+                "suggested_name": safe_name,
+                "suggested_description": f"Browser task: {goal}",
+                "suggested_prompt": suggested_prompt,
+                "template_preview": template_preview,
+                "variables": variables,
+                "secret_variables": secret_variables,
+                "next_step": "Review the suggested prompt, customize it, then save it with task_create.",
+            },
+            indent=2,
+        )
+
+    @mcp.tool()
     def task_delete(name: str) -> str:
         """
         Delete a saved browser automation task.
@@ -342,6 +574,47 @@ def register_task_tools(mcp: FastMCP) -> None:
                 "prompt": task["prompt"],
                 "variables": task.get("variables", extract_placeholders(task["prompt"])),
                 "secret_variables": task.get("secret_variables", []),
+            },
+            indent=2,
+        )
+
+    @mcp.tool()
+    def task_lint(name: str = "", prompt: str = "") -> str:
+        """
+        Lint a saved task or a draft prompt to catch vague instructions and missing verification.
+
+        Args:
+            name: Optional saved task name to lint.
+            prompt: Optional raw task prompt to lint directly.
+
+        Returns:
+            Quality summary with warnings, strengths, and suggestions.
+        """
+        task_name = name.strip()
+        task_prompt = prompt.strip()
+
+        if not task_name and not task_prompt:
+            return json.dumps(
+                {"status": "error", "message": "Provide either a saved task name or a prompt to lint."},
+                indent=2,
+            )
+
+        if task_name:
+            tasks = load_tasks_from_disk()
+            if task_name not in tasks:
+                return json.dumps(
+                    {"status": "error", "message": f"Task '{task_name}' not found."},
+                    indent=2,
+                )
+            task_prompt = tasks[task_name]["prompt"]
+
+        lint_result = lint_task_prompt(task_prompt)
+        return json.dumps(
+            {
+                "status": "success",
+                "name": task_name or None,
+                "variables": extract_placeholders(task_prompt),
+                **lint_result,
             },
             indent=2,
         )

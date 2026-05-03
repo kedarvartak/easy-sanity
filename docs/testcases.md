@@ -507,6 +507,195 @@ Use this structure for every new feature:
   Secret values are leaked in the rendered preview.
   Masking only applies to metadata but not the rendered prompt.
 
+## 0.6.0 Task Authoring UX Helpers
+
+### TC-027: Wizard template generates a structured reusable draft
+
+- Version: `0.6.0`
+- Goal: Confirm `task_wizard_template` generates a strong starter task for realistic browser flows.
+- Setup: MCP server connected in Codex.
+- Prompt or action:
+  Ask Codex to generate a task template for logging into an app and verifying the dashboard loads, with placeholders and assertions enabled.
+- Expected tool behavior:
+  `task_wizard_template`
+- Expected output:
+  The response includes a suggested name, description, structured prompt, `base_url`/`email`/`password` placeholders, and assertion guidance.
+- Failure signals:
+  Template is unstructured.
+  Expected placeholders are missing.
+  Assertion guidance is not included when requested.
+
+### TC-028: Wizard template can generate a simpler non-parameterized draft
+
+- Version: `0.6.0`
+- Goal: Confirm the wizard can also produce a simpler task without placeholders or assertion guidance.
+- Setup: MCP server connected in Codex.
+- Prompt or action:
+  Ask Codex to generate a template for opening a marketing page and confirming a CTA is visible, with placeholders and assertions disabled.
+- Expected tool behavior:
+  `task_wizard_template(include_placeholders=false, include_assertions=false)`
+- Expected output:
+  The task contains no placeholder variables and no assertion-specific guidance.
+- Failure signals:
+  Placeholders are still inserted when disabled.
+  Assertion language appears when not requested.
+
+### TC-029: Linter recognizes a strong structured task
+
+- Version: `0.6.0`
+- Goal: Confirm `task_lint` gives a strong score to a well-structured draft with verification steps.
+- Setup: Use a wizard-generated task prompt with placeholders and assertions enabled.
+- Prompt or action:
+  Ask Codex to lint the generated prompt directly.
+- Expected tool behavior:
+  `task_lint(prompt=...)`
+- Expected output:
+  High quality score, no major warnings, and strengths noting structure and verification.
+- Failure signals:
+  Strong task gets a low score.
+  Linter misses clear strengths.
+
+### TC-030: Linter flags vague prompts
+
+- Version: `0.6.0`
+- Goal: Confirm `task_lint` catches short vague task drafts.
+- Setup: Use a weak draft such as `check website works`.
+- Prompt or action:
+  Ask Codex to lint the weak prompt.
+- Expected tool behavior:
+  `task_lint(prompt=...)`
+- Expected output:
+  Lower quality score with warnings about missing structure, missing starting URL, and vagueness.
+- Failure signals:
+  Vague task is treated as high quality.
+  Missing verification and structure are not flagged.
+
+### TC-031: Linter warns about hardcoded secret-like values
+
+- Version: `0.6.0`
+- Goal: Confirm `task_lint` warns when prompt text appears to contain hardcoded secret-like values.
+- Setup: Use a prompt containing terms like `password` or `api key` directly in the text.
+- Prompt or action:
+  Ask Codex to lint a prompt such as `Go to https://example.com and login with password supersecret and check stuff.`
+- Expected tool behavior:
+  `task_lint(prompt=...)`
+- Expected output:
+  Warning about secret-like values without placeholders and a suggestion to use placeholders such as `{{password}}`.
+- Failure signals:
+  Hardcoded secret-like values are not flagged.
+  No placeholder suggestion is provided.
+
+### TC-032: Linter works on saved tasks as well as raw drafts
+
+- Version: `0.6.0`
+- Goal: Confirm `task_lint(name=...)` can lint a saved task after `task_create`.
+- Setup: Save a temporary task using a strong wizard-generated prompt.
+- Prompt or action:
+  Ask Codex to create a task, lint it by name, then delete it.
+- Expected tool behavior:
+  `task_create`
+  `task_lint(name=...)`
+  `task_delete`
+- Expected output:
+  Linting by saved task name returns the same variable-aware quality summary as linting the raw prompt.
+- Failure signals:
+  Saved tasks cannot be linted by name.
+  Variable metadata disappears during linting of saved tasks.
+
+## 0.7.0 Setup And Onboarding Improvements
+
+### TC-033: Setup script passes shell syntax validation
+
+- Version: `0.7.0`
+- Goal: Confirm the one-command setup script is at least syntactically valid and ready for execution.
+- Setup: Local repo checkout.
+- Prompt or action:
+  Run a shell syntax check against `scripts/setup.sh`.
+- Expected tool behavior:
+  Shell validation completes without syntax errors.
+- Expected output:
+  The script parses cleanly.
+- Failure signals:
+  Script contains shell syntax errors.
+  Script cannot be parsed by `sh`.
+
+### TC-034: Bundled sample tasks are discoverable
+
+- Version: `0.7.0`
+- Goal: Confirm onboarding sample tasks are visible before import.
+- Setup: MCP server connected in Codex.
+- Prompt or action:
+  Ask Codex to call `sample_tasks_list`.
+- Expected tool behavior:
+  `sample_tasks_list`
+- Expected output:
+  The response includes the bundled sample task names, descriptions, and placeholder variables.
+- Failure signals:
+  Sample task pack is empty or unreadable.
+  Variable metadata is missing from listed sample tasks.
+
+### TC-035: Sample task import works and keeps metadata
+
+- Version: `0.7.0`
+- Goal: Confirm a bundled sample task can be imported into saved tasks and retains reusable metadata.
+- Setup: MCP server connected in Codex.
+- Prompt or action:
+  Ask Codex to import `smoke_example_homepage`, inspect it with `task_get`, and then clean it up if it was imported only for validation.
+- Expected tool behavior:
+  `sample_tasks_import`
+  `task_get`
+  `task_delete` when cleanup is needed
+- Expected output:
+  Imported task is available in saved tasks and still includes `variables` and `secret_variables`.
+- Failure signals:
+  Import succeeds but task metadata is missing.
+  Imported task cannot be retrieved or cleaned up.
+
+### TC-036: Imported sample tasks can be rendered immediately
+
+- Version: `0.7.0`
+- Goal: Confirm sample tasks are actually useful for onboarding, not just discoverable.
+- Setup: Import a bundled sample task that uses placeholders.
+- Prompt or action:
+  Ask Codex to render the imported sample with explicit variables.
+- Expected tool behavior:
+  `task_render`
+- Expected output:
+  Render succeeds with `is_fully_resolved=true`, no missing variables, and a usable rendered task prompt.
+- Failure signals:
+  Imported sample tasks cannot be rendered cleanly.
+  Placeholders remain unresolved despite supplied values.
+
+### TC-037: Runtime default headless mode is honored
+
+- Version: `0.7.0`
+- Goal: Confirm onboarding defaults reduce first-run configuration friction.
+- Setup: Set `BROWSER_HEADLESS_DEFAULT=true` in the environment.
+- Prompt or action:
+  Ask Codex to call `browser_start` without explicitly passing a `headless` argument.
+- Expected tool behavior:
+  `browser_start`
+- Expected output:
+  The returned payload reports `headless=true`.
+- Failure signals:
+  Environment default is ignored.
+  Browser starts in headed mode despite the configured default.
+
+### TC-038: Runtime default timeout is configurable
+
+- Version: `0.7.0`
+- Goal: Confirm the default browser timeout can be controlled through environment configuration.
+- Setup: Set `BROWSER_DEFAULT_TIMEOUT_MS` to a non-default value such as `45000`.
+- Prompt or action:
+  Validate the timeout helper used by browser state initialization.
+- Expected tool behavior:
+  Settings resolution should return the configured timeout value.
+- Expected output:
+  The effective default timeout reflects the environment variable.
+- Failure signals:
+  Invalid or provided timeout values are ignored unexpectedly.
+  Effective timeout remains at the old default when valid configuration is present.
+
 ## Recommended Workflow For Every Future Feature
 
 When we ship a new feature, we should add all of the following:

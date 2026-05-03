@@ -7,6 +7,7 @@ from mcp.server.fastmcp import FastMCP
 
 from browser_state import BrowserState
 from prompts import FIND_ELEMENT_RESULT_MESSAGE, FILL_FIELD_NOT_FOUND_TEMPLATE
+from settings import browser_headless_default
 
 
 def _browser_not_started_error() -> str:
@@ -383,19 +384,20 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
             return json.dumps({"status": "error", "message": str(e)}, indent=2)
 
     @mcp.tool()
-    async def browser_start(task: str, headless: bool = False) -> str:
+    async def browser_start(task: str, headless: Optional[bool] = None) -> str:
         """
         Start a new browser session.
 
         Args:
             task: Description of what you want to accomplish.
-            headless: Run without showing the browser window (default: False).
+            headless: Run without showing the browser window. If omitted, uses config default.
 
         Returns:
             Confirmation with session info.
         """
         try:
-            await browser_state.initialize(headless=headless)
+            resolved_headless = browser_headless_default() if headless is None else headless
+            await browser_state.initialize(headless=resolved_headless)
             browser_state.task_description = task
             browser_state.action_history = []
 
@@ -404,6 +406,7 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                     "status": "success",
                     "message": "Browser started",
                     "task": task,
+                    "headless": resolved_headless,
                 },
                 indent=2,
             )

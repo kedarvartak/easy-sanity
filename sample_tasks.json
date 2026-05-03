@@ -1,0 +1,38 @@
+{
+  "smoke_example_homepage": {
+    "prompt": "1. Call browser_start with task \"Homepage smoke check\".\n2. Call browser_navigate to {{base_url}}.\n3. Call browser_get_state to inspect the page.\n4. Call assert_page_title with the expected title fragment {{expected_title}}.\n5. Call assert_text_visible with the text {{expected_heading}}.\n6. Call browser_stop with a summary of whether the homepage smoke check passed.",
+    "description": "Smoke check for a homepage title and heading",
+    "variables": [
+      "base_url",
+      "expected_title",
+      "expected_heading"
+    ],
+    "secret_variables": []
+  },
+  "smoke_example_login_form": {
+    "prompt": "1. Call browser_start with task \"Login form presence check\".\n2. Call browser_navigate to {{base_url}}/login.\n3. Call browser_get_state to inspect the login page.\n4. Call assert_element_exists for {{email_selector}}.\n5. Call assert_element_exists for {{password_selector}}.\n6. Call assert_element_enabled for {{submit_selector}}.\n7. Call browser_stop with a summary of whether the login form smoke check passed.",
+    "description": "Smoke check for login form controls",
+    "variables": [
+      "base_url",
+      "email_selector",
+      "password_selector",
+      "submit_selector"
+    ],
+    "secret_variables": []
+  },
+  "smoke_example_post_login": {
+    "prompt": "1. Call browser_start with task \"Post-login verification\".\n2. Call browser_navigate to {{base_url}}/login.\n3. Call browser_fill for the email field using {{email}}.\n4. Call browser_fill for the password field using {{password}}.\n5. Call browser_click_by_role with role \"button\" and name {{submit_button_name}}.\n6. Call assert_url_contains with {{post_login_path_fragment}}.\n7. Call assert_text_visible with {{expected_post_login_text}}.\n8. Call browser_stop with a summary of whether post-login verification passed.",
+    "description": "Reusable login flow with post-login verification",
+    "variables": [
+      "base_url",
+      "email",
+      "password",
+      "submit_button_name",
+      "post_login_path_fragment",
+      "expected_post_login_text"
+    ],
+    "secret_variables": [
+      "password"
+    ]
+  }
+}

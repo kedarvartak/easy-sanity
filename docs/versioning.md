@@ -185,3 +185,81 @@ Impact:
 - the project now has the foundation for reusable environment-aware sanity tasks
 - future workflows can be templated once and reused across multiple deployment targets
 - this ship prepares the ground for safer task sharing, task authoring improvements, and more realistic multi-environment test execution
+
+## 0.6.0
+
+Task authoring UX helpers.
+
+Added:
+
+- `task_wizard_template` to generate structured starter prompts for new browser tasks
+- `task_lint` to evaluate raw drafts or saved tasks for quality, vagueness, missing verification, and hardcoded secret-like values
+- reusable wizard prompt scaffolding in the prompts module
+
+Why this matters:
+
+- writing long browser tasks manually is powerful, but it is easy to make them too vague or forget verification steps
+- the project now helps users author better tasks before they save or run them
+- this reduces friction for teams using natural language to define sanity checks
+
+Testcase experience from this ship:
+
+- the wizard tool produced structured drafts with the expected placeholders and assertion guidance for reusable login-style flows
+- the simpler wizard mode correctly omitted placeholders and assertion-specific guidance when those options were disabled
+- the linter gave a strong draft a high score with no warnings
+- the linter correctly downgraded a vague draft like `check website works` and flagged missing structure, missing starting URL, and vagueness
+- the linter also caught hardcoded secret-like values and recommended placeholder-based replacements
+- linting a saved temporary task by name returned the same useful variable-aware summary as linting a raw draft prompt
+
+What we learned:
+
+- authoring UX improvements are valuable even before execution-time features change, because they improve task quality upstream
+- a simple heuristic linter can catch surprisingly meaningful issues in natural-language browser tasks
+- having both raw-draft linting and saved-task linting makes the toolset more flexible for iterative authoring
+
+Impact:
+
+- the MCP server now supports not just task execution, but task creation workflows
+- users can generate stronger initial drafts and catch task-quality issues earlier
+- this ship lays the groundwork for richer task wizards, step previews, and future authoring-time guidance
+
+## 0.7.0
+
+Setup and onboarding improvements.
+
+Added:
+
+- one-command setup script at `scripts/setup.sh`
+- runtime defaults through environment-aware settings
+- bundled sample task pack in `sample_tasks.json`
+- onboarding MCP tools:
+  `sample_tasks_list`
+  `sample_tasks_import`
+
+Why this matters:
+
+- the project should feel useful within minutes, not after a long manual setup
+- new users now have a clearer first-run path and sample tasks they can import immediately
+- runtime defaults make browser startup less fiddly for common cases like headless execution and longer default timeouts
+
+Testcase experience from this ship:
+
+- the setup script passed shell syntax validation
+- bundled sample tasks were discoverable through `sample_tasks_list`
+- importing `smoke_example_homepage` succeeded and preserved variable metadata
+- the imported sample task rendered cleanly with explicit placeholder values
+- the onboarding validation cleaned up the imported sample task afterward so the repo state did not drift
+- `browser_start` honored `BROWSER_HEADLESS_DEFAULT=true` when no explicit headless argument was supplied
+- the settings layer correctly resolved a custom timeout value of `45000`
+
+What we learned:
+
+- onboarding validation does not always need to re-run dependency installation if the important behavior can be validated more directly and safely
+- sample task packs are especially useful when they are immediately renderable, not just listable
+- small runtime defaults materially improve first-run ergonomics for browser-based tools
+
+Impact:
+
+- new users now have a clearer path from clone to first useful workflow
+- the MCP server is easier to bootstrap into a smoke-testing workflow
+- this ship prepares the project for better demos, quicker onboarding, and lower setup friction overall

@@ -16,7 +16,19 @@ This is a free alternative to paid browser automation services like use-browser 
 
 ## Installation
 
-### 1. Install dependencies
+### Quick Start
+
+```bash
+./scripts/setup.sh
+```
+
+This will:
+
+- install project dependencies with `uv sync`
+- install the Playwright Chromium browser
+- leave you ready to connect the MCP server in your IDE
+
+### 1. Install dependencies manually
 
 ```bash
 # Install uv if you haven't already
@@ -88,6 +100,28 @@ Add this to your MCP settings:
 
 Restart Claude Code/Cursor/Cline to load the MCP server.
 
+### 4. Optional runtime defaults
+
+You can set these environment variables if you want easier first-run defaults:
+
+```bash
+export BROWSER_HEADLESS_DEFAULT=true
+export BROWSER_DEFAULT_TIMEOUT_MS=45000
+```
+
+- `BROWSER_HEADLESS_DEFAULT`: when `true`, `browser_start` runs headless unless explicitly overridden
+- `BROWSER_DEFAULT_TIMEOUT_MS`: default Playwright timeout for page actions
+
+### 5. Optional sample task pack
+
+The repo includes bundled sample tasks for quick smoke-test onboarding.
+
+Useful tools:
+
+- `sample_tasks_list` - list the bundled sample tasks
+- `sample_tasks_import()` - import all bundled sample tasks
+- `sample_tasks_import(names_json='["smoke_example_homepage"]')` - import only selected sample tasks
+
 ## Task System
 
 You can save reusable browser automation tasks and invoke them as /slash-commands in your IDE.
@@ -149,6 +183,12 @@ The AI will use these tools automatically:
 | `task_list` | List all saved tasks |
 | `task_get` | Get details of a specific task |
 | `task_delete` | Remove a saved task |
+| `task_wizard_template` | Generate a starter task draft |
+| `task_lint` | Lint a raw or saved task prompt |
+| `task_render` | Render a templated task with variables |
+| `profile_save` / `profile_list` / `profile_get` / `profile_delete` | Manage environment profiles |
+| `sample_tasks_list` | List bundled sample tasks |
+| `sample_tasks_import` | Import bundled sample tasks into saved tasks |
 
 ### Browser Tools
 
@@ -209,6 +249,12 @@ Your Prompt / /slash-command
 uv run playwright install chromium
 ```
 
+Or run:
+
+```bash
+./scripts/setup.sh
+```
+
 **Tools not showing in IDE:**
 1. Check MCP configuration file path
 2. Restart IDE completely
@@ -216,6 +262,11 @@ uv run playwright install chromium
 
 **Timeouts:**
 Use `browser_wait(seconds=5)` after clicks that trigger page loads.
+
+**Need a quick first task:**
+1. Run `sample_tasks_list`
+2. Import one with `sample_tasks_import`
+3. Render it with `task_render` if it uses placeholders
 
 ## License
 

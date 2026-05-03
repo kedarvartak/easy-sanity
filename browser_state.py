@@ -2,6 +2,8 @@ from typing import Optional
 
 from playwright.async_api import Browser, Page, async_playwright
 
+from settings import browser_default_timeout_ms
+
 
 class BrowserState:
     """Manages browser lifecycle across tool calls."""
@@ -18,7 +20,7 @@ class BrowserState:
             self.playwright = await async_playwright().start()
             self.browser = await self.playwright.chromium.launch(headless=headless)
             self.page = await self.browser.new_page()
-            self.page.set_default_timeout(30000)
+            self.page.set_default_timeout(browser_default_timeout_ms())
 
     async def cleanup(self):
         if self.page:
