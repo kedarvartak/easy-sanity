@@ -696,6 +696,87 @@ Use this structure for every new feature:
   Invalid or provided timeout values are ignored unexpectedly.
   Effective timeout remains at the old default when valid configuration is present.
 
+## 0.8.0 Structured Test Case Support
+
+### TC-039: Structured task preview compiles expected sections
+
+- Version: `0.8.0`
+- Goal: Confirm `task_preview_structured` compiles structured inputs into an execution-ready prompt.
+- Setup: MCP server connected in Codex.
+- Prompt or action:
+  Ask Codex to preview a structured login verification task with purpose, steps, assertions, retry policy, and expected result.
+- Expected tool behavior:
+  `task_preview_structured`
+- Expected output:
+  The compiled prompt includes `Purpose:`, `Execution Plan:`, `Assertions:`, `Retry Policy:`, and `Expected Result:`.
+- Failure signals:
+  Structured sections are missing from the compiled prompt.
+  Preview omits variables or secret-variable inference.
+
+### TC-040: Structured task creation persists structured metadata
+
+- Version: `0.8.0`
+- Goal: Confirm a structured task can be saved and retains its structured definition.
+- Setup: Use a temporary structured task name for validation.
+- Prompt or action:
+  Ask Codex to save a structured task with purpose, steps, assertions, inputs, environment variables, and expected result.
+- Expected tool behavior:
+  `task_create_structured`
+  `task_get`
+- Expected output:
+  `task_get` returns `is_structured=true`.
+  Structured metadata includes keys such as `purpose`, `steps`, `assertions`, `inputs`, `environment_variables`, `retry_policy`, and `expected_result`.
+- Failure signals:
+  Task saves only as a flat prompt with no structured metadata.
+  Structured fields do not round-trip through `task_get`.
+
+### TC-041: Task list exposes whether a task is structured
+
+- Version: `0.8.0`
+- Goal: Confirm `task_list` can distinguish structured tasks from plain prompt tasks.
+- Setup: Save a temporary structured task.
+- Prompt or action:
+  Ask Codex to call `task_list` after saving the structured task.
+- Expected tool behavior:
+  `task_list`
+- Expected output:
+  The structured task entry includes `is_structured=true`.
+- Failure signals:
+  Structured tasks are indistinguishable from legacy prompt tasks in task listings.
+
+### TC-042: Structured task rendering resolves placeholders and masks secrets
+
+- Version: `0.8.0`
+- Goal: Confirm structured tasks still work with the existing variable rendering system.
+- Setup: Save a structured task containing placeholders such as `{{base_url}}`, `{{email}}`, and `{{password}}`.
+- Prompt or action:
+  Ask Codex to render the structured task with explicit variable values and secret masking enabled.
+- Expected tool behavior:
+  `task_render`
+- Expected output:
+  `is_fully_resolved=true`.
+  `missing_variables` is empty.
+  The rendered prompt contains resolved non-secret values and masks secret substitutions such as password.
+- Failure signals:
+  Structured tasks cannot be rendered like regular tasks.
+  Secrets are leaked in the rendered preview.
+
+### TC-043: Structured task cleanup leaves no validation residue
+
+- Version: `0.8.0`
+- Goal: Confirm structured-task validation can be done safely without leaving test artifacts behind.
+- Setup: Use a temporary validation task name.
+- Prompt or action:
+  Ask Codex to create the structured task, validate it, then delete it.
+- Expected tool behavior:
+  `task_create_structured`
+  `task_delete`
+- Expected output:
+  Cleanup succeeds and the temporary task is removed after validation.
+- Failure signals:
+  Temporary structured tasks remain in saved tasks after validation.
+  Cleanup fails or leaves prompt registration behind.
+
 ## Recommended Workflow For Every Future Feature
 
 When we ship a new feature, we should add all of the following:

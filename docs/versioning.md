@@ -263,3 +263,41 @@ Impact:
 - new users now have a clearer path from clone to first useful workflow
 - the MCP server is easier to bootstrap into a smoke-testing workflow
 - this ship prepares the project for better demos, quicker onboarding, and lower setup friction overall
+
+## 0.8.0
+
+Structured test case support.
+
+Added:
+
+- `task_preview_structured` to preview structured browser sanity tasks without saving them
+- `task_create_structured` to save purpose-driven structured tasks
+- structured task metadata stored alongside saved tasks
+- `task_get` and `task_list` support for exposing whether a task is structured and returning its structured payload
+
+Why this matters:
+
+- saved tasks can now be defined more consistently and audited more easily
+- the project moves closer to real test cases instead of only free-form prompt templates
+- structured metadata makes future reporting, linting, and suite execution more practical
+
+Testcase experience from this ship:
+
+- structured preview compiled the expected sections for purpose, execution plan, assertions, retry policy, and expected result
+- a temporary structured task was created successfully and retained full structured metadata through `task_get`
+- `task_list` correctly surfaced `is_structured=true` for the saved structured task
+- structured tasks still rendered cleanly through the existing placeholder-resolution layer
+- secret placeholders such as `password` remained maskable in rendered previews
+- the temporary structured validation task was cleaned up successfully after the checks
+
+What we learned:
+
+- structured test support can be introduced incrementally by compiling to the existing execution prompt model
+- backward compatibility is easier to preserve when structured tasks and free-form tasks share the same render and prompt-registration path
+- exposing `is_structured` in listing and retrieval APIs is useful immediately for validation and future UI layers
+
+Impact:
+
+- the task system now supports a more formal and auditable testing model
+- future work like test suites, reporting, and evidence capture has a better data shape to build on
+- this ship is a meaningful step from prompt-driven automation toward reusable structured sanity tests

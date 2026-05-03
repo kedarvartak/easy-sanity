@@ -171,6 +171,78 @@ def _parse_json_object(value: str, field_name: str) -> dict[str, str]:
     return {str(k): str(v) for k, v in parsed.items()}
 
 
+def _parse_json_string_list(value: str, field_name: str) -> list[str]:
+    try:
+        parsed = json.loads(value) if value.strip() else []
+    except json.JSONDecodeError as e:
+        raise ValueError(f"{field_name} must be valid JSON: {e.msg}") from e
+
+    if not isinstance(parsed, list):
+        raise ValueError(f"{field_name} must be a JSON array")
+
+    return [str(item).strip() for item in parsed if str(item).strip()]
+
+
+def compile_structured_task_prompt(structured: dict) -> str:
+    """Compile a structured task definition into an execution-ready task prompt."""
+    purpose = structured.get("purpose", "").strip()
+    start_url = structured.get("start_url", "").strip()
+    inputs = structured.get("inputs", [])
+    environment_variables = structured.get("environment_variables", [])
+    steps = structured.get("steps", [])
+    assertions = structured.get("assertions", [])
+    retry_policy = structured.get("retry_policy", "").strip()
+    expected_result = structured.get("expected_result", "").strip()
+
+    lines = [
+        "Execute the following structured browser sanity test.",
+        "",
+        f"Purpose: {purpose}",
+    ]
+
+    if inputs:
+        lines.extend(["", "Inputs:"])
+        lines.extend([f"- {item}" for item in inputs])
+
+    if environment_variables:
+        lines.extend(["", "Environment Variables:"])
+        lines.extend([f"- {item}" for item in environment_variables])
+
+    lines.extend(["", "Execution Plan:"])
+    lines.append(f"1. Call browser_start with task \"{purpose}\".")
+    if start_url:
+        lines.append(f"2. Call browser_navigate to {start_url}.")
+        lines.append("3. Call browser_get_state to inspect the page before acting.")
+        step_offset = 4
+    else:
+        lines.append("2. Call browser_get_state or browser_navigate as needed to reach the correct page.")
+        step_offset = 3
+
+    for index, step in enumerate(steps, start=step_offset):
+        lines.append(f"{index}. {step}")
+
+    assertion_start = step_offset + len(steps)
+    if assertions:
+        lines.append("")
+        lines.append("Assertions:")
+        for idx, assertion in enumerate(assertions, start=assertion_start):
+            lines.append(f"{idx}. {assertion}")
+
+    trailing_index = assertion_start + len(assertions)
+    if retry_policy:
+        lines.extend(["", f"Retry Policy: {retry_policy}"])
+
+    if expected_result:
+        lines.extend(["", f"Expected Result: {expected_result}"])
+
+    lines.append("")
+    lines.append(
+        f"{trailing_index}. Call browser_stop with a summary that states whether the test passed or failed."
+    )
+
+    return "\n".join(lines)
+
+
 def render_task_prompt(
     task: dict,
     profile_values: dict[str, str] | None = None,
@@ -331,6 +403,183 @@ def register_task_tools(mcp: FastMCP) -> None:
         )
 
     @mcp.tool()
+    def task_create_structured(
+        name: str,
+        purpose: str,
+        steps_json: str,
+        assertions_json: str = "[]",
+        inputs_json: str = "[]",
+        environment_variables_json: str = "[]",
+        start_url: str = "",
+        retry_policy: str = "",
+        expected_result: str = "",
+        description: str = "",
+        secret_variables_json: str = "[]",
+    ) -> str:
+        """
+        Create a structured browser sanity task from explicit purpose, steps, and assertions.
+
+        Args:
+            name: Short identifier for the saved task.
+            purpose: Human-readable purpose of the test case.
+            steps_json: JSON array of execution step strings.
+            assertions_json: Optional JSON array of assertion or verification step strings.
+            inputs_json: Optional JSON array of input names or placeholders used by the task.
+            environment_variables_json: Optional JSON array of environment variable names or placeholders.
+            start_url: Optional starting URL or path placeholder.
+            retry_policy: Optional retry guidance for flaky interactions.
+            expected_result: Optional final expected outcome summary.
+            description: Optional short description for the task list and IDE prompt palette.
+            secret_variables_json: Optional JSON array of variables that should be treated as secrets.
+
+        Returns:
+            Confirmation plus the compiled prompt and structured metadata.
+        """
+        safe_name = _sanitize_name(name)
+        try:
+            steps = _parse_json_string_list(steps_json, "steps_json")
+            assertions = _parse_json_string_list(assertions_json, "assertions_json")
+            inputs = _parse_json_string_list(inputs_json, "inputs_json")
+            environment_variables = _parse_json_string_list(
+                environment_variables_json, "environment_variables_json"
+            )
+            provided_secret_variables = _parse_json_string_list(
+                secret_variables_json, "secret_variables_json"
+            )
+        except ValueError as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+        if not purpose.strip():
+            return json.dumps({"status": "error", "message": "purpose is required."}, indent=2)
+        if not steps:
+            return json.dumps({"status": "error", "message": "steps_json must include at least one step."}, indent=2)
+
+        structured = {
+            "purpose": purpose.strip(),
+            "start_url": start_url.strip(),
+            "inputs": inputs,
+            "environment_variables": environment_variables,
+            "steps": steps,
+            "assertions": assertions,
+            "retry_policy": retry_policy.strip(),
+            "expected_result": expected_result.strip(),
+        }
+        prompt = compile_structured_task_prompt(structured)
+        placeholders = extract_placeholders(prompt)
+        inferred_secret_variables = infer_secret_variables(placeholders + inputs + environment_variables)
+        secret_variables = sorted(
+            {
+                item
+                for item in provided_secret_variables + inferred_secret_variables
+                if item in placeholders or item in inputs or item in environment_variables
+            }
+        )
+
+        tasks = load_tasks_from_disk()
+        already_existed = safe_name in tasks
+        tasks[safe_name] = {
+            "prompt": prompt,
+            "description": description or f"Structured browser task: {safe_name}",
+            "variables": placeholders,
+            "secret_variables": secret_variables,
+            "structured": structured,
+        }
+        save_tasks_to_disk(tasks)
+
+        if already_existed:
+            mcp._prompt_manager._prompts.pop(safe_name, None)
+
+        register_task_as_prompt(mcp, safe_name, prompt, tasks[safe_name]["description"])
+
+        action = "updated" if already_existed else "created"
+        return json.dumps(
+            {
+                "status": "success",
+                "message": f"Structured task '{safe_name}' {action}. Invoke it in your IDE with /{safe_name}",
+                "name": safe_name,
+                "description": tasks[safe_name]["description"],
+                "prompt": prompt,
+                "variables": placeholders,
+                "secret_variables": secret_variables,
+                "structured": structured,
+            },
+            indent=2,
+        )
+
+    @mcp.tool()
+    def task_preview_structured(
+        purpose: str,
+        steps_json: str,
+        assertions_json: str = "[]",
+        inputs_json: str = "[]",
+        environment_variables_json: str = "[]",
+        start_url: str = "",
+        retry_policy: str = "",
+        expected_result: str = "",
+        secret_variables_json: str = "[]",
+    ) -> str:
+        """
+        Preview a structured browser sanity task without saving it.
+
+        Args:
+            purpose: Human-readable purpose of the test case.
+            steps_json: JSON array of execution step strings.
+            assertions_json: Optional JSON array of assertion or verification step strings.
+            inputs_json: Optional JSON array of input names or placeholders used by the task.
+            environment_variables_json: Optional JSON array of environment variable names or placeholders.
+            start_url: Optional starting URL or path placeholder.
+            retry_policy: Optional retry guidance for flaky interactions.
+            expected_result: Optional final expected outcome summary.
+            secret_variables_json: Optional JSON array of variables that should be treated as secrets.
+
+        Returns:
+            Compiled prompt plus structured metadata and inferred variables.
+        """
+        try:
+            steps = _parse_json_string_list(steps_json, "steps_json")
+            assertions = _parse_json_string_list(assertions_json, "assertions_json")
+            inputs = _parse_json_string_list(inputs_json, "inputs_json")
+            environment_variables = _parse_json_string_list(
+                environment_variables_json, "environment_variables_json"
+            )
+            provided_secret_variables = _parse_json_string_list(
+                secret_variables_json, "secret_variables_json"
+            )
+        except ValueError as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+        if not purpose.strip():
+            return json.dumps({"status": "error", "message": "purpose is required."}, indent=2)
+        if not steps:
+            return json.dumps({"status": "error", "message": "steps_json must include at least one step."}, indent=2)
+
+        structured = {
+            "purpose": purpose.strip(),
+            "start_url": start_url.strip(),
+            "inputs": inputs,
+            "environment_variables": environment_variables,
+            "steps": steps,
+            "assertions": assertions,
+            "retry_policy": retry_policy.strip(),
+            "expected_result": expected_result.strip(),
+        }
+        prompt = compile_structured_task_prompt(structured)
+        placeholders = extract_placeholders(prompt)
+        inferred_secret_variables = infer_secret_variables(placeholders + inputs + environment_variables)
+        secret_variables = sorted(set(provided_secret_variables + inferred_secret_variables))
+
+        return json.dumps(
+            {
+                "status": "success",
+                "prompt": prompt,
+                "variables": placeholders,
+                "secret_variables": secret_variables,
+                "structured": structured,
+            },
+            indent=2,
+        )
+
+    @mcp.tool()
     def task_list() -> str:
         """
         List all saved browser automation tasks.
@@ -357,6 +606,7 @@ def register_task_tools(mcp: FastMCP) -> None:
                 "prompt": task["prompt"],
                 "variables": task.get("variables", extract_placeholders(task["prompt"])),
                 "secret_variables": task.get("secret_variables", []),
+                "is_structured": "structured" in task,
             }
             for name, task in tasks.items()
         ]
@@ -574,6 +824,8 @@ def register_task_tools(mcp: FastMCP) -> None:
                 "prompt": task["prompt"],
                 "variables": task.get("variables", extract_placeholders(task["prompt"])),
                 "secret_variables": task.get("secret_variables", []),
+                "is_structured": "structured" in task,
+                "structured": task.get("structured"),
             },
             indent=2,
         )
