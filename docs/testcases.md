@@ -777,6 +777,95 @@ Use this structure for every new feature:
   Temporary structured tasks remain in saved tasks after validation.
   Cleanup fails or leaves prompt registration behind.
 
+## 0.10.0 Page-Level Domain Understanding
+
+### TC-044: Browser state includes semantic page understanding
+
+- Version: `0.10.0`
+- Goal: Confirm `browser_get_state` now returns semantic understanding in addition to raw page state.
+- Setup: Start a browser session and navigate to `test_pages/domain_understanding.html`.
+- Prompt or action:
+  Ask Codex to call `browser_get_state` after the page loads.
+- Expected tool behavior:
+  `browser_start`
+  `browser_navigate`
+  `browser_get_state`
+- Expected output:
+  The state payload includes `semantic_summary`, `semantic_summary_text`, `route_context`, and `change_summary`.
+  The semantic counts should identify at least one form, one table, one nav, and one alert on the fixture page.
+- Failure signals:
+  `browser_get_state` still returns only raw text and interactive elements.
+  Semantic fields are missing or empty on an obviously structured page.
+
+### TC-045: DOM summary detects structured surfaces
+
+- Version: `0.10.0`
+- Goal: Confirm `browser_get_dom_summary` can identify meaningful page surfaces such as forms, tables, cards, navs, dialogs, and workflow context.
+- Setup: Use `test_pages/domain_understanding.html`.
+- Prompt or action:
+  Ask Codex to call `browser_get_dom_summary` on the fixture page.
+- Expected tool behavior:
+  `browser_get_dom_summary`
+- Expected output:
+  The semantic summary reports:
+  at least 1 form
+  at least 1 table
+  at least 1 nav
+  at least 1 alert
+  a workflow step of `Step 1: Account`
+- Failure signals:
+  Structured page surfaces are not detected.
+  Workflow-step inference is absent despite the explicit stepper on the page.
+
+### TC-046: Form listing returns labeled fields and actions
+
+- Version: `0.10.0`
+- Goal: Confirm `browser_list_forms` exposes form structure in a way an LLM can use directly.
+- Setup: Use `test_pages/domain_understanding.html`.
+- Prompt or action:
+  Ask Codex to call `browser_list_forms`.
+- Expected tool behavior:
+  `browser_list_forms`
+- Expected output:
+  The returned form list includes the `Profile Settings` form with fields labeled `Full Name`, `Email Address`, and `Role`, plus a submit button named `Save Settings`.
+- Failure signals:
+  Field labels are missing.
+  Submit controls are not surfaced.
+  Form metadata is too shallow to guide semantic interaction.
+
+### TC-047: Action history records semantic change context
+
+- Version: `0.10.0`
+- Goal: Confirm semantic understanding is attached to recorded browser actions, not only to direct inspection tools.
+- Setup: Use `test_pages/domain_understanding.html` and submit the settings form through the MCP tools.
+- Prompt or action:
+  Ask Codex to fill the form semantically and click `Save Settings`, then inspect `browser_get_history`.
+- Expected tool behavior:
+  `browser_fill`
+  `browser_click_by_role`
+  `browser_get_history`
+- Expected output:
+  The recorded save action includes `domain_summary_text`, `route_context`, and a `change_summary` noting the new success alert text.
+- Failure signals:
+  Action history contains only raw tool metadata.
+  Post-action semantic changes are not captured in history.
+
+### TC-048: Change-description tool reports workflow and dialog changes
+
+- Version: `0.10.0`
+- Goal: Confirm `browser_describe_changes` can summarize what changed after a workflow or UI-state transition.
+- Setup: Use `test_pages/domain_understanding.html`.
+- Prompt or action:
+  Advance the workflow to step 2, call `browser_describe_changes`, then open the help dialog and call it again.
+- Expected tool behavior:
+  `browser_describe_changes`
+- Expected output:
+  The first call reports a workflow-step change to `Step 2: Review`.
+  The second call reports a dialog-count increase and identifies the new `Quick Help` heading.
+- Failure signals:
+  Page changes occur but are not reflected in the change summary.
+  Workflow-step and dialog transitions look identical to the previous state.
+
 ## Recommended Workflow For Every Future Feature
 
 When we ship a new feature, we should add all of the following:
@@ -795,5 +884,6 @@ To make feature validation easier, we should eventually maintain a small stable 
 - a multi-step form
 - a page with accessible buttons and links
 - a page with known visible text for extraction checks
+- a richer dashboard-style page with cards, tables, dialogs, alerts, and workflow-step changes
 
 That will give us repeatable validation targets for new MCP features without depending too much on changing third-party sites.

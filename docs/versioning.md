@@ -301,3 +301,44 @@ Impact:
 - the task system now supports a more formal and auditable testing model
 - future work like test suites, reporting, and evidence capture has a better data shape to build on
 - this ship is a meaningful step from prompt-driven automation toward reusable structured sanity tests
+
+## 0.10.0
+
+Page-level domain understanding for browser reasoning.
+
+Added:
+
+- `browser_get_dom_summary`
+- `browser_list_forms`
+- `browser_describe_changes`
+- semantic page-summary fields inside `browser_get_state`
+- semantic route/change context attached to browser action history
+- a richer local validation fixture at `test_pages/domain_understanding.html`
+
+Why this matters:
+
+- the agent can now reason about page structure instead of only raw visible text and generic clickable elements
+- this makes browser sanity testing more reliable on real app surfaces such as forms, dashboards, dialogs, and tables
+- action results are more interpretable because the agent can now see what changed semantically after each step
+
+Testcase experience from this ship:
+
+- validation was run against the new stable fixture in `test_pages/domain_understanding.html`
+- `browser_get_state` returned semantic summary fields, route context, and change summaries correctly
+- `browser_get_dom_summary` detected the fixture's form, table, nav, alert, and workflow step
+- `browser_list_forms` exposed labeled fields and the submit action cleanly enough for semantic interaction
+- semantic context was successfully recorded in browser history after saving the settings form
+- `browser_describe_changes` correctly reported both a workflow-step transition and a dialog opening
+- the validation also produced a markdown report and step screenshots through the already-shipped evidence layer
+
+What we learned:
+
+- a richer local fixture is important for validating page-understanding features because a simple login form does not exercise enough UI structure
+- semantic change tracking becomes much more useful once it is attached to ordinary browser actions, not just dedicated inspection tools
+- card-detection heuristics are directionally useful but still somewhat broad: the current fixture reported 3 cards on a page that visually emphasizes 2 main cards, so this is a quality-tuning area rather than a hard failure
+
+Impact:
+
+- the browser agent now has a much stronger foundation for understanding app workflows and UI surfaces
+- future sanity-test prompts can refer to forms, dialogs, workflow steps, and changed page state with less guesswork
+- this ship materially improves the project's path from browser control toward autonomous application-aware sanity testing

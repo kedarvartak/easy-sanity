@@ -21,6 +21,7 @@ class BrowserState:
         self.report_path: Optional[Path] = None
         self.screenshots_root: Optional[Path] = None
         self.step_counter: int = 0
+        self.last_domain_summary: Optional[dict] = None
 
     async def initialize(self, headless: bool = False):
         if self.browser is None:
@@ -56,3 +57,4 @@ class BrowserState:
         self.report_path = None
         self.screenshots_root = None
         self.step_counter = 0
+        self.last_domain_summary = None

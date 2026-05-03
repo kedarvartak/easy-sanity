@@ -3,6 +3,13 @@ import base64
 import json
 from typing import Literal, Optional
 
+from browser.domain import (
+    capture_domain_summary,
+    domain_snapshot_signature,
+    infer_route_context,
+    summarize_domain_changes,
+    summarize_domain_summary,
+)
 from mcp.server.fastmcp import FastMCP
 
 from browser.report_manager import (
@@ -46,6 +53,8 @@ async def _record_action(browser_state: BrowserState, action: str, status: str =
     screenshot_path = None
     current_url = ""
     current_title = ""
+    domain_summary = None
+    change_summary = []
 
     if browser_state.page:
         current_url = browser_state.page.url
@@ -53,6 +62,14 @@ async def _record_action(browser_state: BrowserState, action: str, status: str =
             current_title = await browser_state.page.title()
         except Exception:
             current_title = ""
+
+        try:
+            domain_summary = await capture_domain_summary(browser_state.page)
+            change_summary = summarize_domain_changes(browser_state.last_domain_summary, domain_summary)
+            browser_state.last_domain_summary = domain_summary
+        except Exception:
+            domain_summary = None
+            change_summary = []
 
         if browser_state.screenshots_root:
             ensure_directory(browser_state.screenshots_root)
@@ -70,6 +87,9 @@ async def _record_action(browser_state: BrowserState, action: str, status: str =
         "title": current_title,
         "details": _sanitize_recorded_details(action, details),
         "screenshot_path": str(screenshot_path) if screenshot_path else None,
+        "domain_summary_text": summarize_domain_summary(domain_summary) if domain_summary else "",
+        "route_context": infer_route_context(domain_summary) if domain_summary else {},
+        "change_summary": change_summary,
     }
     browser_state.action_history.append(entry)
     return entry
@@ -485,7 +505,7 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
     @mcp.tool()
     async def browser_get_state() -> str:
         """
-        Get the current page state: URL, title, visible text, interactive elements, and screenshot.
+        Get the current page state: URL, title, visible text, interactive elements, semantic summary, and screenshot.
 
         Returns:
             JSON with page state including screenshot_base64 (PNG).
@@ -537,6 +557,11 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                 """
             )
 
+            domain_summary = await capture_domain_summary(browser_state.page)
+            route_context = infer_route_context(domain_summary)
+            change_summary = summarize_domain_changes(browser_state.last_domain_summary, domain_summary)
+            browser_state.last_domain_summary = domain_summary
+
             screenshot_bytes = await browser_state.page.screenshot(type="png", full_page=False)
             screenshot_b64 = base64.b64encode(screenshot_bytes).decode()
 
@@ -547,6 +572,10 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                     "title": title,
                     "visible_text": visible_text,
                     "interactive_elements": elements[:20],
+                    "semantic_summary": domain_summary,
+                    "semantic_summary_text": summarize_domain_summary(domain_summary),
+                    "route_context": route_context,
+                    "change_summary": change_summary,
                     "screenshot_base64": screenshot_b64,
                     "action_count": len(browser_state.action_history),
                     "task": browser_state.task_description,
@@ -1006,6 +1035,118 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                 )
                 return json.dumps({"status": "success", "extracted_text": text}, indent=2)
             return json.dumps({"status": "error", "message": f"Element not found: {selector}"}, indent=2)
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def browser_get_dom_summary() -> str:
+        """
+        Return a semantic summary of the current page: forms, tables, cards, navs, dialogs, alerts, and route context.
+
+        Returns:
+            Structured semantic page understanding for better browser reasoning.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            domain_summary = await capture_domain_summary(browser_state.page)
+            route_context = infer_route_context(domain_summary)
+            change_summary = summarize_domain_changes(browser_state.last_domain_summary, domain_summary)
+            browser_state.last_domain_summary = domain_summary
+
+            await _record_action(
+                browser_state,
+                "get_dom_summary",
+                "success",
+                forms=domain_summary.get("counts", {}).get("forms", 0),
+                tables=domain_summary.get("counts", {}).get("tables", 0),
+                dialogs=domain_summary.get("counts", {}).get("dialogs", 0),
+            )
+
+            return json.dumps(
+                {
+                    "status": "success",
+                    "summary_text": summarize_domain_summary(domain_summary),
+                    "route_context": route_context,
+                    "change_summary": change_summary,
+                    "semantic_summary": domain_summary,
+                },
+                indent=2,
+            )
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def browser_list_forms() -> str:
+        """
+        List detected forms and their fields using labels and accessibility-oriented metadata.
+
+        Returns:
+            Visible forms with field structure and submit actions.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            domain_summary = await capture_domain_summary(browser_state.page)
+            browser_state.last_domain_summary = domain_summary
+            forms = domain_summary.get("forms", [])
+
+            await _record_action(
+                browser_state,
+                "list_forms",
+                "success",
+                forms=len(forms),
+                fields=sum(form.get("field_count", 0) for form in forms),
+            )
+
+            return json.dumps(
+                {
+                    "status": "success",
+                    "form_count": len(forms),
+                    "forms": forms,
+                },
+                indent=2,
+            )
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def browser_describe_changes() -> str:
+        """
+        Compare the current page against the last stored semantic snapshot and describe what changed.
+
+        Returns:
+            Human-friendly change summary plus the current route/workflow context.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            current_summary = await capture_domain_summary(browser_state.page)
+            previous_summary = browser_state.last_domain_summary
+            change_summary = summarize_domain_changes(previous_summary, current_summary)
+            browser_state.last_domain_summary = current_summary
+
+            await _record_action(
+                browser_state,
+                "describe_changes",
+                "success",
+                change_count=len(change_summary),
+                signature=domain_snapshot_signature(current_summary),
+            )
+
+            return json.dumps(
+                {
+                    "status": "success",
+                    "summary_text": summarize_domain_summary(current_summary),
+                    "route_context": infer_route_context(current_summary),
+                    "change_summary": change_summary,
+                    "workflow_step": current_summary.get("workflow_step"),
+                },
+                indent=2,
+            )
         except Exception as e:
             return json.dumps({"status": "error", "message": str(e)}, indent=2)
 
