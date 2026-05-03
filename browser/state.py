@@ -4,7 +4,7 @@ from typing import Optional
 from playwright.async_api import Browser, Page, async_playwright
 
 from browser.report_manager import ensure_directory, report_filename, slugify, utc_timestamp_slug
-from config.settings import browser_default_timeout_ms, reports_dir, screenshots_dir
+from config.settings import browser_default_timeout_ms, downloads_dir, reports_dir, screenshots_dir
 
 
 class BrowserState:
@@ -20,6 +20,7 @@ class BrowserState:
         self.started_at: str = ""
         self.report_path: Optional[Path] = None
         self.screenshots_root: Optional[Path] = None
+        self.downloads_root: Optional[Path] = None
         self.step_counter: int = 0
         self.last_domain_summary: Optional[dict] = None
         self.console_logs: list[dict] = []
@@ -30,9 +31,13 @@ class BrowserState:
         if self.browser is None:
             self.playwright = await async_playwright().start()
             self.browser = await self.playwright.chromium.launch(headless=headless)
-            self.page = await self.browser.new_page()
-            self.page.set_default_timeout(browser_default_timeout_ms())
-            self._attach_page_listeners()
+            page = await self.browser.new_page()
+            self.set_active_page(page)
+
+    def set_active_page(self, page: Page) -> None:
+        self.page = page
+        self.page.set_default_timeout(browser_default_timeout_ms())
+        self._attach_page_listeners()
 
     def _attach_page_listeners(self) -> None:
         if not self.page:
@@ -96,7 +101,9 @@ class BrowserState:
         self.started_at = timestamp
         self.report_path = ensure_directory(reports_dir()) / report_filename(self.session_slug)
         self.screenshots_root = ensure_directory(screenshots_dir()) / self.session_slug
+        self.downloads_root = ensure_directory(downloads_dir()) / self.session_slug
         ensure_directory(self.screenshots_root)
+        ensure_directory(self.downloads_root)
         self.step_counter = 0
         self.console_logs = []
         self.network_requests = []
@@ -119,6 +126,7 @@ class BrowserState:
         self.started_at = ""
         self.report_path = None
         self.screenshots_root = None
+        self.downloads_root = None
         self.step_counter = 0
         self.last_domain_summary = None
         self.console_logs = []

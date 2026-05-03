@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import json
+from pathlib import Path
 from typing import Literal, Optional
 
 from browser.domain import (
@@ -122,6 +123,21 @@ def _success_payload(**payload) -> str:
     return json.dumps(payload, indent=2)
 
 
+async def _record_assertion_result(
+    browser_state: BrowserState,
+    assertion: str,
+    passed: bool,
+    **details,
+) -> None:
+    await _record_action(
+        browser_state,
+        assertion,
+        "passed" if passed else "failed",
+        passed=passed,
+        **details,
+    )
+
+
 async def _resolve_field_locator(browser_state: BrowserState, field: str):
     """
     Resolve a human-friendly field description to a Playwright locator.
@@ -186,6 +202,12 @@ async def _resolve_clickable_by_label(browser_state: BrowserState, name: str):
         if await locator.count() > 0:
             return strategy_name, locator
     return None
+
+
+def _tab_items(browser_state: BrowserState) -> list:
+    if not browser_state.page:
+        return []
+    return browser_state.page.context.pages
 
 
 def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
@@ -482,6 +504,198 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                 selector=selector,
                 expected=expected,
                 actual=actual,
+            )
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def assert_element_visible(selector: str) -> str:
+        """
+        Assert that an element exists and is visible.
+
+        Args:
+            selector: CSS selector of the element.
+
+        Returns:
+            Assertion result with pass/fail details.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            locator = browser_state.page.locator(selector).first
+            passed = await locator.count() > 0 and await locator.is_visible()
+            await _record_assertion_result(browser_state, "assert_element_visible", passed, selector=selector)
+            if passed:
+                return _assertion_success(
+                    "assert_element_visible",
+                    f"Element is visible: {selector}",
+                    selector=selector,
+                )
+            return _assertion_failure(
+                "assert_element_visible",
+                f"Element is not visible: {selector}",
+                selector=selector,
+            )
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def assert_element_hidden(selector: str) -> str:
+        """
+        Assert that an element is hidden or absent.
+
+        Args:
+            selector: CSS selector of the element.
+
+        Returns:
+            Assertion result with pass/fail details.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            locator = browser_state.page.locator(selector).first
+            count = await locator.count()
+            hidden = count == 0 or not await locator.is_visible()
+            await _record_assertion_result(
+                browser_state,
+                "assert_element_hidden",
+                hidden,
+                selector=selector,
+            )
+            if hidden:
+                return _assertion_success(
+                    "assert_element_hidden",
+                    f"Element is hidden or absent: {selector}",
+                    selector=selector,
+                )
+            return _assertion_failure(
+                "assert_element_hidden",
+                f"Element is visible: {selector}",
+                selector=selector,
+            )
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def assert_input_value(selector: str, expected: str) -> str:
+        """
+        Assert that a form input currently has the expected value.
+
+        Args:
+            selector: CSS selector of the input/select/textarea.
+            expected: Expected current value.
+
+        Returns:
+            Assertion result with actual and expected values.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            locator = browser_state.page.locator(selector).first
+            actual = await locator.input_value()
+            passed = actual == expected
+            await _record_assertion_result(
+                browser_state,
+                "assert_input_value",
+                passed,
+                selector=selector,
+                expected=expected,
+                actual=actual,
+            )
+            if passed:
+                return _assertion_success(
+                    "assert_input_value",
+                    f"Input value matches for {selector}",
+                    selector=selector,
+                    expected=expected,
+                    actual=actual,
+                )
+            return _assertion_failure(
+                "assert_input_value",
+                f"Input value does not match for {selector}",
+                selector=selector,
+                expected=expected,
+                actual=actual,
+            )
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def assert_url_equals(expected_url: str) -> str:
+        """
+        Assert that the current page URL exactly matches the expected URL.
+
+        Args:
+            expected_url: Exact expected URL.
+
+        Returns:
+            Assertion result with the actual URL.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            current_url = browser_state.page.url
+            passed = current_url == expected_url
+            await _record_assertion_result(
+                browser_state,
+                "assert_url_equals",
+                passed,
+                expected_url=expected_url,
+                current_url=current_url,
+            )
+            if passed:
+                return _assertion_success(
+                    "assert_url_equals",
+                    "URL exactly matches expected value",
+                    expected_url=expected_url,
+                    current_url=current_url,
+                )
+            return _assertion_failure(
+                "assert_url_equals",
+                "URL does not exactly match expected value",
+                expected_url=expected_url,
+                current_url=current_url,
+            )
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def assert_text_contains(text: str) -> str:
+        """
+        Assert that the current page text contains the expected string.
+
+        Args:
+            text: Text expected somewhere in the visible page.
+
+        Returns:
+            Assertion result with pass/fail details.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            body_text = await browser_state.page.locator("body").inner_text()
+            passed = text in body_text
+            await _record_assertion_result(
+                browser_state,
+                "assert_text_contains",
+                passed,
+                text=text,
+            )
+            if passed:
+                return _assertion_success(
+                    "assert_text_contains",
+                    f"Page text contains '{text}'",
+                    text=text,
+                )
+            return _assertion_failure(
+                "assert_text_contains",
+                f"Page text does not contain '{text}'",
+                text=text,
             )
         except Exception as e:
             return json.dumps({"status": "error", "message": str(e)}, indent=2)
@@ -1225,6 +1439,475 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
             await asyncio.sleep(0.2)
             await _record_action(browser_state, "hover", "success", selector=selector)
             return _success_payload(message=f"Hovered over {selector}", selector=selector)
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def browser_drag_and_drop(source: str, target: str) -> str:
+        """
+        Drag an element from one selector to another.
+
+        Args:
+            source: CSS selector of the draggable element.
+            target: CSS selector of the drop target.
+
+        Returns:
+            Confirmation of the drag-and-drop action.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            await browser_state.page.drag_and_drop(source, target)
+            await asyncio.sleep(0.3)
+            await _record_action(browser_state, "drag_and_drop", "success", source=source, target=target)
+            return _success_payload(message="Drag and drop completed", source=source, target=target)
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def browser_upload_file(selector: str, path: str) -> str:
+        """
+        Upload a local file into a file input.
+
+        Args:
+            selector: CSS selector for the file input element.
+            path: Local filesystem path to the file.
+
+        Returns:
+            Confirmation of the upload.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            file_path = Path(path).expanduser().resolve()
+            if not file_path.exists() or not file_path.is_file():
+                return json.dumps({"status": "error", "message": f"File not found: {path}"}, indent=2)
+
+            await browser_state.page.set_input_files(selector, str(file_path))
+            await _record_action(browser_state, "upload_file", "success", selector=selector, path=str(file_path))
+            return _success_payload(message=f"Uploaded file to {selector}", selector=selector, path=str(file_path))
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def browser_download_file(link_or_selector: str) -> str:
+        """
+        Download a file by clicking a selector or text target.
+
+        Args:
+            link_or_selector: CSS selector or visible text target for the download trigger.
+
+        Returns:
+            Saved download path and suggested filename when available.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            if not browser_state.downloads_root:
+                return json.dumps({"status": "error", "message": "Download directory is not initialized."}, indent=2)
+
+            async with browser_state.page.expect_download() as download_info:
+                if any(token in link_or_selector for token in ("#", ".", "[", ">", "=", ":")):
+                    await browser_state.page.click(link_or_selector)
+                else:
+                    await browser_state.page.get_by_text(link_or_selector, exact=False).first.click()
+
+            download = await download_info.value
+            suggested_name = download.suggested_filename or f"download-{browser_state.step_counter + 1}"
+            save_path = browser_state.downloads_root / suggested_name
+            await download.save_as(str(save_path))
+            await _record_action(
+                browser_state,
+                "download_file",
+                "success",
+                target=link_or_selector,
+                path=str(save_path),
+            )
+            return _success_payload(
+                message="Download completed",
+                target=link_or_selector,
+                path=str(save_path),
+                suggested_filename=suggested_name,
+            )
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def browser_refresh() -> str:
+        """
+        Refresh the current page.
+
+        Returns:
+            Confirmation with the refreshed URL and title.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            await browser_state.page.reload(wait_until="networkidle")
+            title = await browser_state.page.title()
+            await _record_action(browser_state, "refresh", "success")
+            return _success_payload(message="Page refreshed", url=browser_state.page.url, title=title)
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def browser_go_back() -> str:
+        """
+        Go back in browser history.
+
+        Returns:
+            Confirmation with the current URL after navigation.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            await browser_state.page.go_back(wait_until="networkidle")
+            await _record_action(browser_state, "go_back", "success")
+            return _success_payload(message="Navigated back", url=browser_state.page.url)
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def browser_go_forward() -> str:
+        """
+        Go forward in browser history.
+
+        Returns:
+            Confirmation with the current URL after navigation.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            await browser_state.page.go_forward(wait_until="networkidle")
+            await _record_action(browser_state, "go_forward", "success")
+            return _success_payload(message="Navigated forward", url=browser_state.page.url)
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def browser_open_tab(url: str = "") -> str:
+        """
+        Open a new tab in the current browser context and optionally navigate it.
+
+        Args:
+            url: Optional URL to open immediately in the new tab.
+
+        Returns:
+            New tab index and current URL.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            page = await browser_state.page.context.new_page()
+            browser_state.set_active_page(page)
+            if url:
+                await browser_state.page.goto(url, wait_until="networkidle")
+            tabs = _tab_items(browser_state)
+            index = tabs.index(browser_state.page)
+            await _record_action(browser_state, "open_tab", "success", url=url or "about:blank", tab_index=index)
+            return _success_payload(
+                message="Opened new tab",
+                tab_index=index,
+                tab_count=len(tabs),
+                url=browser_state.page.url,
+            )
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def browser_switch_tab(index: int = -1, title: str = "") -> str:
+        """
+        Switch the active browser tab by index or title substring.
+
+        Args:
+            index: Tab index to activate. Ignored if title is provided.
+            title: Optional title substring to match.
+
+        Returns:
+            Confirmation of the selected tab.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            tabs = _tab_items(browser_state)
+            if not tabs:
+                return json.dumps({"status": "error", "message": "No tabs available."}, indent=2)
+
+            target_page = None
+            resolved_index = None
+            if title:
+                for idx, page in enumerate(tabs):
+                    page_title = await page.title()
+                    if title.lower() in page_title.lower():
+                        target_page = page
+                        resolved_index = idx
+                        break
+                if target_page is None:
+                    return json.dumps(
+                        {"status": "error", "message": f"No tab found with title containing '{title}'."},
+                        indent=2,
+                    )
+            else:
+                if index < 0:
+                    index = len(tabs) + index
+                if index < 0 or index >= len(tabs):
+                    return json.dumps({"status": "error", "message": f"Invalid tab index: {index}"}, indent=2)
+                target_page = tabs[index]
+                resolved_index = index
+
+            browser_state.set_active_page(target_page)
+            await browser_state.page.bring_to_front()
+            await _record_action(
+                browser_state,
+                "switch_tab",
+                "success",
+                tab_index=resolved_index,
+                title=title or await browser_state.page.title(),
+            )
+            return _success_payload(
+                message="Switched tab",
+                tab_index=resolved_index,
+                url=browser_state.page.url,
+                title=await browser_state.page.title(),
+            )
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def browser_close_tab() -> str:
+        """
+        Close the current tab and switch to another open tab if one remains.
+
+        Returns:
+            Confirmation of the close action and the new active tab.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            tabs = _tab_items(browser_state)
+            if len(tabs) <= 1:
+                return json.dumps(
+                    {"status": "error", "message": "Cannot close the last tab. Use browser_stop instead."},
+                    indent=2,
+                )
+
+            current_page = browser_state.page
+            current_index = tabs.index(current_page)
+            await current_page.close()
+            remaining_tabs = _tab_items(browser_state)
+            next_index = min(current_index, len(remaining_tabs) - 1)
+            browser_state.set_active_page(remaining_tabs[next_index])
+            await browser_state.page.bring_to_front()
+            await _record_action(
+                browser_state,
+                "close_tab",
+                "success",
+                closed_tab_index=current_index,
+                active_tab_index=next_index,
+            )
+            return _success_payload(
+                message="Closed current tab",
+                active_tab_index=next_index,
+                tab_count=len(remaining_tabs),
+                url=browser_state.page.url,
+            )
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def browser_wait_for_text(text: str, timeout_ms: int = 10000) -> str:
+        """
+        Wait until visible page text appears.
+
+        Args:
+            text: Text that should become visible.
+            timeout_ms: Maximum wait time in milliseconds.
+
+        Returns:
+            Confirmation when the text becomes visible.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            await browser_state.page.get_by_text(text, exact=False).first.wait_for(timeout=timeout_ms)
+            await _record_action(
+                browser_state,
+                "wait_for_text",
+                "success",
+                text=text,
+                timeout_ms=timeout_ms,
+            )
+            return _success_payload(message=f"Text became visible: {text}", text=text, timeout_ms=timeout_ms)
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def browser_wait_for_element(selector: str, timeout_ms: int = 10000, state: str = "visible") -> str:
+        """
+        Wait for an element to reach a desired state.
+
+        Args:
+            selector: CSS selector to wait for.
+            timeout_ms: Maximum wait time in milliseconds.
+            state: Playwright wait state such as visible, attached, hidden, or detached.
+
+        Returns:
+            Confirmation when the element reaches the desired state.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            await browser_state.page.locator(selector).first.wait_for(state=state, timeout=timeout_ms)
+            await _record_action(
+                browser_state,
+                "wait_for_element",
+                "success",
+                selector=selector,
+                state=state,
+                timeout_ms=timeout_ms,
+            )
+            return _success_payload(
+                message=f"Element reached state '{state}'",
+                selector=selector,
+                state=state,
+                timeout_ms=timeout_ms,
+            )
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def browser_wait_for_url(pattern: str, timeout_ms: int = 10000) -> str:
+        """
+        Wait for the current page URL to contain the given pattern.
+
+        Args:
+            pattern: URL substring expected to appear.
+            timeout_ms: Maximum wait time in milliseconds.
+
+        Returns:
+            Confirmation with the matched URL.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            await browser_state.page.wait_for_url(f"**{pattern}**", timeout=timeout_ms)
+            await _record_action(
+                browser_state,
+                "wait_for_url",
+                "success",
+                pattern=pattern,
+                timeout_ms=timeout_ms,
+            )
+            return _success_payload(
+                message=f"URL matched pattern '{pattern}'",
+                pattern=pattern,
+                current_url=browser_state.page.url,
+                timeout_ms=timeout_ms,
+            )
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def browser_wait_for_navigation(timeout_ms: int = 10000) -> str:
+        """
+        Wait for the current page to finish navigating.
+
+        Args:
+            timeout_ms: Maximum wait time in milliseconds.
+
+        Returns:
+            Confirmation with the resulting URL.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            await browser_state.page.wait_for_load_state("load", timeout=timeout_ms)
+            await _record_action(
+                browser_state,
+                "wait_for_navigation",
+                "success",
+                timeout_ms=timeout_ms,
+            )
+            return _success_payload(
+                message="Navigation completed",
+                current_url=browser_state.page.url,
+                timeout_ms=timeout_ms,
+            )
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def browser_wait_for_network_idle(timeout_ms: int = 10000) -> str:
+        """
+        Wait for the page to reach Playwright's network-idle state.
+
+        Args:
+            timeout_ms: Maximum wait time in milliseconds.
+
+        Returns:
+            Confirmation when the page becomes network-idle.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            await browser_state.page.wait_for_load_state("networkidle", timeout=timeout_ms)
+            await _record_action(
+                browser_state,
+                "wait_for_network_idle",
+                "success",
+                timeout_ms=timeout_ms,
+            )
+            return _success_payload(
+                message="Page reached network-idle state",
+                current_url=browser_state.page.url,
+                timeout_ms=timeout_ms,
+            )
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def browser_wait_for_disappearance(selector: str, timeout_ms: int = 10000) -> str:
+        """
+        Wait for an element to disappear from view or detach from the page.
+
+        Args:
+            selector: CSS selector of the element to wait on.
+            timeout_ms: Maximum wait time in milliseconds.
+
+        Returns:
+            Confirmation when the element disappears.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            await browser_state.page.locator(selector).first.wait_for(state="hidden", timeout=timeout_ms)
+            await _record_action(
+                browser_state,
+                "wait_for_disappearance",
+                "success",
+                selector=selector,
+                timeout_ms=timeout_ms,
+            )
+            return _success_payload(
+                message=f"Element disappeared: {selector}",
+                selector=selector,
+                timeout_ms=timeout_ms,
+            )
         except Exception as e:
             return json.dumps({"status": "error", "message": str(e)}, indent=2)
 

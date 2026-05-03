@@ -39,6 +39,14 @@ def screenshots_dir() -> Path:
     return ROOT_DIR / "artifacts" / "screenshots"
 
 
+def downloads_dir() -> Path:
+    raw = os.environ.get("BROWSER_DOWNLOADS_DIR", "").strip()
+    if raw:
+        path = Path(raw).expanduser()
+        return path if path.is_absolute() else ROOT_DIR / path
+    return ROOT_DIR / "artifacts" / "downloads"
+
+
 def app_memory_dir() -> Path:
     raw = os.environ.get("APP_MEMORY_DIR", "").strip()
     if raw:
