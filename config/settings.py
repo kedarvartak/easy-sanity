@@ -37,3 +37,11 @@ def screenshots_dir() -> Path:
         path = Path(raw).expanduser()
         return path if path.is_absolute() else ROOT_DIR / path
     return ROOT_DIR / "artifacts" / "screenshots"
+
+
+def app_memory_dir() -> Path:
+    raw = os.environ.get("APP_MEMORY_DIR", "").strip()
+    if raw:
+        path = Path(raw).expanduser()
+        return path if path.is_absolute() else ROOT_DIR / path
+    return DATA_DIR / "app_memory"

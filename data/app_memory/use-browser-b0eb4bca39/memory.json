@@ -1,0 +1,418 @@
+{
+  "repo_id": "use-browser-b0eb4bca39",
+  "repo_path": "/home/kedar/Desktop/Projects/use_browser",
+  "repo_name": "use_browser",
+  "app_name": "use_browser",
+  "focus": "repo memory",
+  "sync_runs": 1,
+  "last_synced_at": "2026-05-03T16:09:49.047773+00:00",
+  "tech_stack": [
+    "Cypress",
+    "Playwright",
+    "Python"
+  ],
+  "entrypoints": [
+    "README.md",
+    "main.py",
+    "pyproject.toml"
+  ],
+  "route_hints": [],
+  "workflow_hints": {
+    "admin": [
+      "README.md",
+      "data/tasks.json",
+      "docs/features.md",
+      "docs/versioning.md",
+      "memory/store.py"
+    ],
+    "auth": [
+      "README.md",
+      "browser/__init__.py",
+      "browser/report_manager.py",
+      "browser/state.py",
+      "browser/tools.py",
+      "data/sample_tasks.json",
+      "data/tasks.json",
+      "docs/features.md",
+      "docs/roadmap.md",
+      "docs/testcases.md",
+      "docs/versioning.md",
+      "memory/store.py",
+      "memory/tools.py",
+      "tasks/__init__.py",
+      "tasks/tools.py"
+    ],
+    "checkout": [
+      "docs/roadmap.md",
+      "docs/testcases.md",
+      "memory/store.py",
+      "tasks/tools.py"
+    ],
+    "dashboard": [
+      "README.md",
+      "data/sample_tasks.json",
+      "data/tasks.json",
+      "docs/features.md",
+      "docs/versioning.md",
+      "mcp-config-example.json",
+      "memory/store.py",
+      "memory/tools.py"
+    ],
+    "onboarding": [
+      "README.md",
+      "docs/features.md",
+      "docs/roadmap.md",
+      "docs/testcases.md",
+      "memory/store.py",
+      "scripts/setup.sh",
+      "tasks/tools.py"
+    ],
+    "profile": [
+      "config/settings.py",
+      "data/profiles.json",
+      "docs/features.md",
+      "docs/roadmap.md",
+      "memory/store.py",
+      "memory/tools.py",
+      "tasks/tools.py"
+    ],
+    "search": [
+      "README.md",
+      "docs/features.md",
+      "docs/roadmap.md",
+      "docs/testcases.md",
+      "memory/store.py",
+      "tasks/tools.py"
+    ],
+    "settings": [
+      "README.md",
+      "browser/state.py",
+      "browser/tools.py",
+      "config/__init__.py",
+      "config/settings.py",
+      "docs/roadmap.md",
+      "docs/testcases.md",
+      "mcp-config-example.json",
+      "memory/store.py",
+      "memory/tools.py",
+      "tasks/tools.py"
+    ]
+  },
+  "feature_hints": {
+    "authentication": [
+      "README.md",
+      "browser/__init__.py",
+      "browser/report_manager.py",
+      "browser/state.py",
+      "browser/tools.py",
+      "data/sample_tasks.json",
+      "data/tasks.json",
+      "docs/features.md",
+      "docs/roadmap.md",
+      "docs/testcases.md",
+      "docs/versioning.md",
+      "memory/store.py"
+    ],
+    "commerce": [
+      "data/tasks.json",
+      "docs/features.md",
+      "docs/roadmap.md",
+      "docs/testcases.md",
+      "docs/versioning.md",
+      "memory/store.py",
+      "tasks/tools.py"
+    ],
+    "data-management": [
+      "README.md",
+      "browser/report_manager.py",
+      "browser/state.py",
+      "data/tasks.json",
+      "docs/features.md",
+      "docs/roadmap.md",
+      "docs/testcases.md",
+      "docs/versioning.md",
+      "memory/store.py",
+      "memory/tools.py",
+      "scripts/setup.sh",
+      "tasks/tools.py"
+    ],
+    "messaging": [
+      "browser/tools.py",
+      "memory/store.py",
+      "memory/tools.py",
+      "prompts/__init__.py",
+      "prompts/browser_prompts.py"
+    ],
+    "navigation": [
+      "README.md",
+      "data/sample_tasks.json",
+      "data/tasks.json",
+      "docs/features.md",
+      "docs/roadmap.md",
+      "docs/testcases.md",
+      "docs/versioning.md",
+      "memory/store.py",
+      "prompts/browser_prompts.py",
+      "tasks/tools.py"
+    ],
+    "reporting": [
+      "browser/__init__.py",
+      "browser/report_manager.py",
+      "browser/state.py",
+      "browser/tools.py",
+      "config/settings.py",
+      "data/tasks.json",
+      "docs/features.md",
+      "docs/roadmap.md",
+      "docs/versioning.md",
+      "memory/store.py",
+      "memory/tools.py"
+    ]
+  },
+  "environment_hints": [
+    "APP_MEMORY_DIR",
+    "BROWSER_DEFAULT_TIMEOUT_MS",
+    "BROWSER_HEADLESS_DEFAULT",
+    "BROWSER_REPORTS_DIR",
+    "BROWSER_SCREENSHOTS_DIR",
+    "DATA_DIR",
+    "PROFILES_FILE",
+    "ROOT_DIR",
+    "SAMPLE_TASKS_FILE",
+    "TASKS_FILE"
+  ],
+  "readme_summary": "# Easy Sanity\nA completely free browser automation MCP server that uses your IDE's built-in LLM - no API keys required!\nThis is a free alternative to paid browser automation services like use-browser API. It runs locally and uses your IDE's AI (Claude Code, Cursor, Cline, etc.) to control the browser.\n## Features\n- **100% Free** - No API keys, no subscriptions, no usage limits\n- **Uses IDE LLMs** - Leverages your IDE's AI (Claude Code, Cursor, etc.)\n- **Visual Browser Control** - See the browser as it works (or run headless)\n- **Screenshot Analysis** - LLM sees the page and decides what to do\n- **Full Browser Actions** - Click, type, navigate, scroll, extract data\n- **Session Management** - Persistent browser sessions across multiple actions\n- **Saved Tasks** - Create reusable tasks and invoke them with /slash-commands\n## Installation",
+  "test_asset_hints": [
+    "README.md",
+    "browser/state.py",
+    "browser/tools.py",
+    "docs/features.md",
+    "docs/versioning.md",
+    "memory/store.py",
+    "pyproject.toml",
+    "scripts/setup.sh"
+  ],
+  "manual_notes": [],
+  "scanned_files_count": 29,
+  "sample_files": [
+    "main.py",
+    "pyproject.toml",
+    "README.md",
+    "browser/report_manager.py",
+    "memory/__init__.py",
+    "memory/store.py",
+    "memory/tools.py",
+    "config/settings.py",
+    "test_pages/login_form.html",
+    ".gitignore",
+    ".python-version",
+    "browser/__init__.py",
+    "browser/state.py",
+    "browser/tools.py",
+    "config/__init__.py",
+    "data/profiles.json",
+    "data/sample_tasks.json",
+    "data/tasks.json",
+    "docs/features.md",
+    "docs/roadmap.md",
+    "docs/testcases.md",
+    "docs/versioning.md",
+    "mcp-config-example.json",
+    "prompts/__init__.py",
+    "prompts/browser_prompts.py",
+    "scripts/setup.sh",
+    "tasks/__init__.py",
+    "tasks/tools.py",
+    "uv.lock"
+  ],
+  "repo_snapshot": {
+    "tracked_files_count": 29,
+    "manifest": {
+      ".gitignore": "478:1777722773634883018",
+      ".python-version": "5:1773668573658661012",
+      "README.md": "6982:1777823646111999221",
+      "browser/__init__.py": "55:1777823583477909461",
+      "browser/report_manager.py": "3458:1777823597020719596",
+      "browser/state.py": "2241:1777823597021719579",
+      "browser/tools.py": "39544:1777823607217556780",
+      "config/__init__.py": "37:1777823583478557352",
+      "config/settings.py": "1379:1777824192492617136",
+      "data/profiles.json": "3:1777823614438445750",
+      "data/sample_tasks.json": "2167:1777823614437141454",
+      "data/tasks.json": "2452:1777823614437445765",
+      "docs/features.md": "5874:1777823646111999221",
+      "docs/roadmap.md": "8587:1777722773635080675",
+      "docs/testcases.md": "31075:1777823646112999208",
+      "docs/versioning.md": "13840:1777823646113999194",
+      "main.py": "477:1777824192492617136",
+      "mcp-config-example.json": "215:1773669109757250566",
+      "memory/__init__.py": "62:1777824192491617128",
+      "memory/store.py": "20518:1777824550533591140",
+      "memory/tools.py": "13991:1777824522083209888",
+      "prompts/__init__.py": "330:1777818844686584784",
+      "prompts/browser_prompts.py": "1370:1777818844686584784",
+      "pyproject.toml": "251:1773668876103989996",
+      "scripts/setup.sh": "482:1777819227394993475",
+      "tasks/__init__.py": "54:1777823583478349355",
+      "tasks/tools.py": "39599:1777823646110999234",
+      "test_pages/login_form.html": "1312:1777725730995344158",
+      "uv.lock": "111863:1773669061539740641"
+    },
+    "last_delta": {
+      "new_files": [
+        ".gitignore",
+        ".python-version",
+        "README.md",
+        "browser/__init__.py",
+        "browser/report_manager.py",
+        "browser/state.py",
+        "browser/tools.py",
+        "config/__init__.py",
+        "config/settings.py",
+        "data/profiles.json",
+        "data/sample_tasks.json",
+        "data/tasks.json",
+        "docs/features.md",
+        "docs/roadmap.md",
+        "docs/testcases.md",
+        "docs/versioning.md",
+        "main.py",
+        "mcp-config-example.json",
+        "memory/__init__.py",
+        "memory/store.py",
+        "memory/tools.py",
+        "prompts/__init__.py",
+        "prompts/browser_prompts.py",
+        "pyproject.toml",
+        "scripts/setup.sh",
+        "tasks/__init__.py",
+        "tasks/tools.py",
+        "test_pages/login_form.html",
+        "uv.lock"
+      ],
+      "changed_files": [],
+      "removed_files": []
+    }
+  },
+  "primary_surfaces": [
+    "admin workflow",
+    "auth workflow",
+    "authentication surface",
+    "checkout workflow",
+    "commerce surface",
+    "dashboard workflow",
+    "data-management surface",
+    "messaging surface",
+    "navigation surface",
+    "onboarding workflow",
+    "profile workflow",
+    "reporting surface",
+    "search workflow",
+    "settings workflow"
+  ],
+  "testing_targets": [
+    "Verify login, logout, session persistence, and invalid-credential handling.",
+    "Check dashboard rendering, key cards/widgets, and empty states.",
+    "Test query entry, result rendering, and no-results behavior.",
+    "Validate settings forms, save actions, and persistence after refresh.",
+    "Cover cart, checkout, and confirmation states with careful assertions.",
+    "Exercise tables/lists for load, filtering, sorting, and row actions.",
+    "Reuse existing test routes, fixtures, or selectors already present in the repo.",
+    "Confirm required environment configuration before running browser sanity flows."
+  ],
+  "summary": "use_browser appears to use Cypress, Playwright, Python. Detected workflows: admin, auth, checkout, dashboard, onboarding, profile, search, settings. Main surfaces: admin workflow, auth workflow, authentication surface, checkout workflow, commerce surface, dashboard workflow, data-management surface, messaging surface, navigation surface, onboarding workflow, profile workflow, reporting surface, search workflow, settings workflow.",
+  "testing_guidance": [
+    "Verify login, logout, session persistence, and invalid-credential handling.",
+    "Check dashboard rendering, key cards/widgets, and empty states.",
+    "Test query entry, result rendering, and no-results behavior.",
+    "Validate settings forms, save actions, and persistence after refresh.",
+    "Cover cart, checkout, and confirmation states with careful assertions.",
+    "Exercise tables/lists for load, filtering, sorting, and row actions.",
+    "Reuse existing test routes, fixtures, or selectors already present in the repo.",
+    "Confirm required environment configuration before running browser sanity flows."
+  ],
+  "learned_notes": [
+    {
+      "category": "stack",
+      "note": "Detected Cypress in the target application.",
+      "evidence": "Cypress",
+      "added_at": "2026-05-03T16:09:49.047885+00:00"
+    },
+    {
+      "category": "stack",
+      "note": "Detected Playwright in the target application.",
+      "evidence": "Playwright",
+      "added_at": "2026-05-03T16:09:49.047892+00:00"
+    },
+    {
+      "category": "stack",
+      "note": "Detected Python in the target application.",
+      "evidence": "Python",
+      "added_at": "2026-05-03T16:09:49.047896+00:00"
+    },
+    {
+      "category": "workflow",
+      "note": "Found a likely admin workflow in the repo.",
+      "evidence": "README.md, data/tasks.json, docs/features.md",
+      "added_at": "2026-05-03T16:09:49.047901+00:00"
+    },
+    {
+      "category": "workflow",
+      "note": "Found a likely auth workflow in the repo.",
+      "evidence": "README.md, browser/__init__.py, browser/report_manager.py",
+      "added_at": "2026-05-03T16:09:49.047906+00:00"
+    },
+    {
+      "category": "workflow",
+      "note": "Found a likely checkout workflow in the repo.",
+      "evidence": "docs/roadmap.md, docs/testcases.md, memory/store.py",
+      "added_at": "2026-05-03T16:09:49.047911+00:00"
+    },
+    {
+      "category": "workflow",
+      "note": "Found a likely dashboard workflow in the repo.",
+      "evidence": "README.md, data/sample_tasks.json, data/tasks.json",
+      "added_at": "2026-05-03T16:09:49.047914+00:00"
+    },
+    {
+      "category": "workflow",
+      "note": "Found a likely onboarding workflow in the repo.",
+      "evidence": "README.md, docs/features.md, docs/roadmap.md",
+      "added_at": "2026-05-03T16:09:49.047917+00:00"
+    },
+    {
+      "category": "workflow",
+      "note": "Found a likely profile workflow in the repo.",
+      "evidence": "config/settings.py, data/profiles.json, docs/features.md",
+      "added_at": "2026-05-03T16:09:49.047920+00:00"
+    },
+    {
+      "category": "workflow",
+      "note": "Found a likely search workflow in the repo.",
+      "evidence": "README.md, docs/features.md, docs/roadmap.md",
+      "added_at": "2026-05-03T16:09:49.047923+00:00"
+    },
+    {
+      "category": "workflow",
+      "note": "Found a likely settings workflow in the repo.",
+      "evidence": "README.md, browser/state.py, browser/tools.py",
+      "added_at": "2026-05-03T16:09:49.047927+00:00"
+    },
+    {
+      "category": "sync",
+      "note": "Sync observed 29 new, 0 changed, and 0 removed files.",
+      "evidence": "repo memory",
+      "added_at": "2026-05-03T16:09:49.047934+00:00"
+    }
+  ],
+  "sync_history": [
+    {
+      "synced_at": "2026-05-03T16:09:49.047773+00:00",
+      "focus": "repo memory",
+      "scanned_files_count": 29,
+      "new_files_count": 29,
+      "changed_files_count": 0,
+      "removed_files_count": 0
+    }
+  ]
+}
