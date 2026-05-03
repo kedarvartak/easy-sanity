@@ -58,3 +58,9 @@ uv.lock
 .python-version
 
 tasks.json
+
+profiles.json
+
+screenshots/
+reports/
+

@@ -45,6 +45,34 @@ uv run playwright install chromium
 
 Add this to your MCP settings:
 
+Copy [.env.example](/home/kedar/Desktop/Projects/use_browser/.env.example:1) if you want a reference for runtime values.
+This project reads actual environment variables, so for IDE MCP setups the easiest pattern is to pass them in the server `env` block.
+
+**Codex**
+```json
+{
+  "mcpServers": {
+    "easy-sanity": {
+      "command": "uv",
+      "args": [
+        "--directory",
+        "/absolute/path/to/use_browser",
+        "run",
+        "main.py"
+      ],
+      "env": {
+        "BROWSER_HEADLESS_DEFAULT": "true",
+        "BROWSER_DEFAULT_TIMEOUT_MS": "45000",
+        "BROWSER_REPORTS_DIR": "artifacts/reports",
+        "BROWSER_SCREENSHOTS_DIR": "artifacts/screenshots",
+        "BROWSER_DOWNLOADS_DIR": "artifacts/downloads",
+        "APP_MEMORY_DIR": "data/app_memory"
+      }
+    }
+  }
+}
+```
+
 **Claude Code** (`~/.config/claude-code/mcp.json`):
 ```json
 {
@@ -53,10 +81,14 @@ Add this to your MCP settings:
       "command": "uv",
       "args": [
         "--directory",
-        "/home/kedar/Desktop/Projects/use_browser",
+        "/absolute/path/to/use_browser",
         "run",
         "main.py"
-      ]
+      ],
+      "env": {
+        "BROWSER_HEADLESS_DEFAULT": "true",
+        "BROWSER_DEFAULT_TIMEOUT_MS": "45000"
+      }
     }
   }
 }
@@ -70,10 +102,14 @@ Add this to your MCP settings:
       "command": "uv",
       "args": [
         "--directory",
-        "/home/kedar/Desktop/Projects/use_browser",
+        "/absolute/path/to/use_browser",
         "run",
         "main.py"
-      ]
+      ],
+      "env": {
+        "BROWSER_HEADLESS_DEFAULT": "true",
+        "BROWSER_DEFAULT_TIMEOUT_MS": "45000"
+      }
     }
   }
 }
@@ -87,10 +123,14 @@ Add this to your MCP settings:
       "command": "uv",
       "args": [
         "--directory",
-        "/home/kedar/Desktop/Projects/use_browser",
+        "/absolute/path/to/use_browser",
         "run",
         "main.py"
-      ]
+      ],
+      "env": {
+        "BROWSER_HEADLESS_DEFAULT": "true",
+        "BROWSER_DEFAULT_TIMEOUT_MS": "45000"
+      }
     }
   }
 }
@@ -111,6 +151,12 @@ export BROWSER_DEFAULT_TIMEOUT_MS=45000
 
 - `BROWSER_HEADLESS_DEFAULT`: when `true`, `browser_start` runs headless unless explicitly overridden
 - `BROWSER_DEFAULT_TIMEOUT_MS`: default Playwright timeout for page actions
+- `BROWSER_REPORTS_DIR`: where markdown reports are written
+- `BROWSER_SCREENSHOTS_DIR`: where per-step screenshots are written
+- `BROWSER_DOWNLOADS_DIR`: where browser-triggered downloads are stored
+- `APP_MEMORY_DIR`: where persistent app-understanding memory is stored
+
+If you want a reusable template, start from [.env.example](/home/kedar/Desktop/Projects/use_browser/.env.example:1).
 
 ### 5. Optional sample task pack
 

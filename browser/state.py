@@ -82,12 +82,18 @@ class BrowserState:
 
     def _handle_request_failed(self, request) -> None:
         failure = request.failure
+        if isinstance(failure, str):
+            failure_text = failure
+        elif failure:
+            failure_text = getattr(failure, "error_text", str(failure))
+        else:
+            failure_text = "unknown failure"
         entry = {
             "event": "requestfailed",
             "method": request.method,
             "url": request.url,
             "resource_type": request.resource_type,
-            "failure_text": failure.error_text if failure else "unknown failure",
+            "failure_text": failure_text,
         }
         self.failed_requests.append(entry)
         self.failed_requests = self.failed_requests[-200:]
