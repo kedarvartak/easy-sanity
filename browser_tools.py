@@ -13,6 +13,28 @@ def _browser_not_started_error() -> str:
     return json.dumps({"status": "error", "message": "Browser not started"}, indent=2)
 
 
+def _assertion_success(assertion: str, message: str, **details) -> str:
+    payload = {
+        "status": "success",
+        "assertion": assertion,
+        "passed": True,
+        "message": message,
+    }
+    payload.update(details)
+    return json.dumps(payload, indent=2)
+
+
+def _assertion_failure(assertion: str, message: str, **details) -> str:
+    payload = {
+        "status": "error",
+        "assertion": assertion,
+        "passed": False,
+        "message": message,
+    }
+    payload.update(details)
+    return json.dumps(payload, indent=2)
+
+
 async def _resolve_field_locator(browser_state: BrowserState, field: str):
     """
     Resolve a human-friendly field description to a Playwright locator.
@@ -63,6 +85,303 @@ async def _resolve_field_locator(browser_state: BrowserState, field: str):
 
 
 def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
+    @mcp.tool()
+    async def assert_url_contains(expected_text: str) -> str:
+        """
+        Assert that the current page URL contains the expected text.
+
+        Args:
+            expected_text: Text that should appear in the current URL.
+
+        Returns:
+            Assertion result with pass/fail details.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            current_url = browser_state.page.url
+            passed = expected_text in current_url
+            browser_state.action_history.append(
+                {
+                    "action": "assert_url_contains",
+                    "expected_text": expected_text,
+                    "passed": passed,
+                }
+            )
+            if passed:
+                return _assertion_success(
+                    "assert_url_contains",
+                    f"URL contains '{expected_text}'",
+                    current_url=current_url,
+                    expected_text=expected_text,
+                )
+            return _assertion_failure(
+                "assert_url_contains",
+                f"URL does not contain '{expected_text}'",
+                current_url=current_url,
+                expected_text=expected_text,
+            )
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def assert_text_visible(text: str) -> str:
+        """
+        Assert that visible page text contains the expected string.
+
+        Args:
+            text: Text that should be visible on the page.
+
+        Returns:
+            Assertion result with pass/fail details.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            locator = browser_state.page.get_by_text(text, exact=False).first
+            passed = await locator.count() > 0 and await locator.is_visible()
+            browser_state.action_history.append(
+                {
+                    "action": "assert_text_visible",
+                    "text": text,
+                    "passed": passed,
+                }
+            )
+            if passed:
+                return _assertion_success(
+                    "assert_text_visible",
+                    f"Visible text found for '{text}'",
+                    text=text,
+                )
+            return _assertion_failure(
+                "assert_text_visible",
+                f"Visible text not found for '{text}'",
+                text=text,
+            )
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def assert_text_not_visible(text: str) -> str:
+        """
+        Assert that visible page text does not contain the specified string.
+
+        Args:
+            text: Text that should not be visible on the page.
+
+        Returns:
+            Assertion result with pass/fail details.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            locator = browser_state.page.get_by_text(text, exact=False).first
+            visible = await locator.count() > 0 and await locator.is_visible()
+            passed = not visible
+            browser_state.action_history.append(
+                {
+                    "action": "assert_text_not_visible",
+                    "text": text,
+                    "passed": passed,
+                }
+            )
+            if passed:
+                return _assertion_success(
+                    "assert_text_not_visible",
+                    f"Text '{text}' is not visible",
+                    text=text,
+                )
+            return _assertion_failure(
+                "assert_text_not_visible",
+                f"Text '{text}' is visible",
+                text=text,
+            )
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def assert_element_exists(selector: str) -> str:
+        """
+        Assert that at least one element exists for a CSS selector.
+
+        Args:
+            selector: CSS selector to check.
+
+        Returns:
+            Assertion result with pass/fail details.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            count = await browser_state.page.locator(selector).count()
+            passed = count > 0
+            browser_state.action_history.append(
+                {
+                    "action": "assert_element_exists",
+                    "selector": selector,
+                    "passed": passed,
+                    "count": count,
+                }
+            )
+            if passed:
+                return _assertion_success(
+                    "assert_element_exists",
+                    f"Element exists for selector '{selector}'",
+                    selector=selector,
+                    count=count,
+                )
+            return _assertion_failure(
+                "assert_element_exists",
+                f"No element found for selector '{selector}'",
+                selector=selector,
+                count=count,
+            )
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def assert_element_enabled(selector: str) -> str:
+        """
+        Assert that a selected element exists and is enabled.
+
+        Args:
+            selector: CSS selector of the target element.
+
+        Returns:
+            Assertion result with pass/fail details.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            locator = browser_state.page.locator(selector).first
+            count = await locator.count()
+            if count == 0:
+                browser_state.action_history.append(
+                    {
+                        "action": "assert_element_enabled",
+                        "selector": selector,
+                        "passed": False,
+                        "reason": "missing",
+                    }
+                )
+                return _assertion_failure(
+                    "assert_element_enabled",
+                    f"No element found for selector '{selector}'",
+                    selector=selector,
+                )
+
+            enabled = await locator.is_enabled()
+            browser_state.action_history.append(
+                {
+                    "action": "assert_element_enabled",
+                    "selector": selector,
+                    "passed": enabled,
+                }
+            )
+            if enabled:
+                return _assertion_success(
+                    "assert_element_enabled",
+                    f"Element '{selector}' is enabled",
+                    selector=selector,
+                )
+            return _assertion_failure(
+                "assert_element_enabled",
+                f"Element '{selector}' is disabled",
+                selector=selector,
+            )
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def assert_page_title(expected_text: str) -> str:
+        """
+        Assert that the page title contains the expected text.
+
+        Args:
+            expected_text: Text that should appear in the page title.
+
+        Returns:
+            Assertion result with pass/fail details.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            title = await browser_state.page.title()
+            passed = expected_text in title
+            browser_state.action_history.append(
+                {
+                    "action": "assert_page_title",
+                    "expected_text": expected_text,
+                    "passed": passed,
+                }
+            )
+            if passed:
+                return _assertion_success(
+                    "assert_page_title",
+                    f"Page title contains '{expected_text}'",
+                    title=title,
+                    expected_text=expected_text,
+                )
+            return _assertion_failure(
+                "assert_page_title",
+                f"Page title does not contain '{expected_text}'",
+                title=title,
+                expected_text=expected_text,
+            )
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def assert_count(selector: str, expected: int) -> str:
+        """
+        Assert that a CSS selector matches exactly the expected number of elements.
+
+        Args:
+            selector: CSS selector to count.
+            expected: Exact expected match count.
+
+        Returns:
+            Assertion result with pass/fail details.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            actual = await browser_state.page.locator(selector).count()
+            passed = actual == expected
+            browser_state.action_history.append(
+                {
+                    "action": "assert_count",
+                    "selector": selector,
+                    "expected": expected,
+                    "actual": actual,
+                    "passed": passed,
+                }
+            )
+            if passed:
+                return _assertion_success(
+                    "assert_count",
+                    f"Selector '{selector}' matched expected count {expected}",
+                    selector=selector,
+                    expected=expected,
+                    actual=actual,
+                )
+            return _assertion_failure(
+                "assert_count",
+                f"Selector '{selector}' matched {actual} elements instead of {expected}",
+                selector=selector,
+                expected=expected,
+                actual=actual,
+            )
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
     @mcp.tool()
     async def browser_start(task: str, headless: bool = False) -> str:
         """

@@ -101,3 +101,43 @@ Impact:
 - the semantic element finder now returns more actionable top candidates
 - testcase coverage proved useful as a product-quality tool, not just an engineering checklist
 - this ship validated the workflow of "feature push -> testcase run -> caveat found -> targeted fix -> testcase rerun"
+
+## 0.4.0
+
+First-class assertion tools for sanity testing workflows.
+
+Added:
+
+- `assert_url_contains`
+- `assert_text_visible`
+- `assert_text_not_visible`
+- `assert_element_exists`
+- `assert_element_enabled`
+- `assert_page_title`
+- `assert_count`
+
+Why this matters:
+
+- the project now moves beyond browser automation into explicit pass/fail testing behavior
+- the LLM can validate outcomes directly instead of only inferring success from raw page state
+- this makes the server more useful as an autonomous sanity testing agent rather than only a browser operator
+
+Testcase experience from this ship:
+
+- assertion tools were validated against the stable local page in `test_pages/login_form.html`
+- direct positive assertions passed for URL, title, visible text, absent text, selector existence, enabled state, and exact counts
+- assertions also worked correctly inside a realistic semantic login workflow
+- a negative testcase using `assert_count(selector="input", expected=3)` returned the intended structured failure payload with expected and actual values
+- assertion steps were successfully recorded in shared browser history, which improves test traceability
+
+What we learned:
+
+- assertions become much more valuable when they produce consistent structured payloads
+- negative testcase coverage is important because assertion tools must fail clearly, not just pass cleanly
+- integrating assertions into shared action history makes the agent more audit-friendly for sanity testing
+
+Impact:
+
+- the MCP server now has a real testing vocabulary, not just browser control primitives
+- future saved tasks and natural-language workflows can end in explicit validation steps
+- this ship lays the foundation for pass/fail summaries, test reports, and more formalized sanity suites

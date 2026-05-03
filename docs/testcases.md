@@ -254,6 +254,123 @@ Use this structure for every new feature:
   Session state is lost between tools.
   Browser cleanup does not reset state properly.
 
+## 0.4.0 First-Class Assertions
+
+### TC-012: URL assertion passes on matching route
+
+- Version: `0.4.0`
+- Goal: Confirm `assert_url_contains` passes when the current URL contains expected text.
+- Setup: Open the local test page.
+- Prompt or action:
+  Ask Codex to open the page and assert that the URL contains `login_form.html`.
+- Expected tool behavior:
+  `browser_start`
+  `browser_navigate`
+  `assert_url_contains`
+- Expected output:
+  Assertion returns `status=success` and `passed=true`.
+- Failure signals:
+  Matching URL text still produces a failed assertion.
+  Assertion payload omits expected URL details.
+
+### TC-013: Title and text assertions work before interaction
+
+- Version: `0.4.0`
+- Goal: Confirm page-title and visible-text assertions work on initial page load.
+- Setup: Open the local test page.
+- Prompt or action:
+  Ask Codex to verify that the page title contains `Browser MCP Test Page` and that visible text includes `Login Demo`.
+- Expected tool behavior:
+  `assert_page_title`
+  `assert_text_visible`
+- Expected output:
+  Both assertions return `status=success` and `passed=true`.
+- Failure signals:
+  Visible text is present but assertion fails.
+  Title assertion does not reflect actual page title.
+
+### TC-014: Negative text assertion works before submit
+
+- Version: `0.4.0`
+- Goal: Confirm `assert_text_not_visible` passes when text is absent.
+- Setup: Open the local test page before submitting the form.
+- Prompt or action:
+  Ask Codex to assert that `Logged in as` is not visible.
+- Expected tool behavior:
+  `assert_text_not_visible`
+- Expected output:
+  Assertion returns `status=success` and `passed=true`.
+- Failure signals:
+  Assertion fails even though the text is absent.
+  Hidden or nonexistent text is misreported as visible.
+
+### TC-015: Element existence, enabled state, and count assertions
+
+- Version: `0.4.0`
+- Goal: Confirm structure-based assertions work on predictable elements.
+- Setup: Open the local test page.
+- Prompt or action:
+  Ask Codex to:
+  assert `#email` exists,
+  assert the submit button is enabled,
+  assert the page contains exactly 2 `input` elements.
+- Expected tool behavior:
+  `assert_element_exists`
+  `assert_element_enabled`
+  `assert_count`
+- Expected output:
+  All assertions return `status=success` and `passed=true`.
+- Failure signals:
+  Existing selectors are reported missing.
+  Enabled elements are reported disabled.
+  Accurate counts are reported incorrectly.
+
+### TC-016: Assertions work inside a realistic semantic login flow
+
+- Version: `0.4.0`
+- Goal: Confirm assertions can be used as first-class validation steps within a realistic workflow.
+- Setup: Open the local test page.
+- Prompt or action:
+  Tell Codex:
+  "Open the page, fill the email and password fields semantically, click Login, then assert that `Logged in as test@example.com` is visible and `Missing credentials` is not visible."
+- Expected tool behavior:
+  Prefer `browser_fill`, `browser_click_by_role`, `assert_text_visible`, and `assert_text_not_visible`.
+- Expected output:
+  Workflow completes successfully and assertions clearly describe pass/fail outcome.
+- Failure signals:
+  Assertions cannot be used reliably after page interaction.
+  Workflow completes but assertions do not reflect post-submit state.
+
+### TC-017: Failed assertions return explicit structured failure
+
+- Version: `0.4.0`
+- Goal: Confirm failing assertions return useful structured failure payloads rather than ambiguous tool errors.
+- Setup: Open the local test page.
+- Prompt or action:
+  Ask Codex to assert that the selector `input` has count `3`.
+- Expected tool behavior:
+  `assert_count(selector="input", expected=3)`
+- Expected output:
+  Assertion returns `status=error`, `passed=false`, and includes `expected`, `actual`, and a clear failure message.
+- Failure signals:
+  Failure returns no expected/actual comparison.
+  Assertion failure is indistinguishable from an implementation crash.
+
+### TC-018: Assertion steps appear in shared browser history
+
+- Version: `0.4.0`
+- Goal: Confirm assertions are captured in `browser_get_history` for auditability.
+- Setup: Run a small workflow using several assertion tools.
+- Prompt or action:
+  Ask Codex to run assertions, then call `browser_get_history`.
+- Expected tool behavior:
+  Assertion actions are appended to shared action history.
+- Expected output:
+  History includes entries such as `assert_url_contains`, `assert_page_title`, `assert_text_visible`, `assert_count`, and associated pass/fail details.
+- Failure signals:
+  Assertions work but are missing from history.
+  History omits whether the assertion passed or failed.
+
 ## Recommended Workflow For Every Future Feature
 
 When we ship a new feature, we should add all of the following:
