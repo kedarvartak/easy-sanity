@@ -371,6 +371,142 @@ Use this structure for every new feature:
   Assertions work but are missing from history.
   History omits whether the assertion passed or failed.
 
+## 0.5.0 Task Variables And Environment Profiles
+
+### TC-019: Task creation extracts placeholders and secret variables
+
+- Version: `0.5.0`
+- Goal: Confirm `task_create` detects template placeholders and tracks secret variables.
+- Setup: MCP server connected in Codex.
+- Prompt or action:
+  Ask Codex to create a task containing `{{base_url}}`, `{{email}}`, and `{{password}}`, with `password` marked as secret.
+- Expected tool behavior:
+  `task_create`
+  `task_get`
+- Expected output:
+  The saved task includes `variables` with `base_url`, `email`, and `password`.
+  `secret_variables` includes `password`.
+- Failure signals:
+  Placeholder metadata is missing.
+  Secret placeholders are not tracked.
+
+### TC-020: Profile lifecycle works through MCP tools
+
+- Version: `0.5.0`
+- Goal: Confirm environment profiles can be created, listed, retrieved, and deleted.
+- Setup: MCP server connected in Codex.
+- Prompt or action:
+  Ask Codex to create a temporary profile, list profiles, fetch that profile, then delete it.
+- Expected tool behavior:
+  `profile_save`
+  `profile_list`
+  `profile_get`
+  `profile_delete`
+- Expected output:
+  The profile appears in `profile_list`.
+  `profile_get` returns the stored variable names.
+  After deletion, the profile is no longer available.
+- Failure signals:
+  Profile does not persist.
+  Profile list does not update.
+  Profile cannot be deleted cleanly.
+
+### TC-021: Profile masking protects likely secret values
+
+- Version: `0.5.0`
+- Goal: Confirm `profile_get(mask_secrets=true)` masks likely secret fields.
+- Setup: Save a profile with a variable named `password`.
+- Prompt or action:
+  Ask Codex to retrieve the profile with masking enabled.
+- Expected tool behavior:
+  `profile_get(name=..., mask_secrets=true)`
+- Expected output:
+  Secret-like keys such as `password` are returned as `***MASKED***`.
+  Non-secret values remain readable.
+- Failure signals:
+  Secret values are returned in plaintext despite masking.
+  Non-secret values are masked unnecessarily.
+
+### TC-022: Task rendering resolves from profile values
+
+- Version: `0.5.0`
+- Goal: Confirm `task_render` can fully resolve a task template using a saved profile.
+- Setup: Save a task with placeholders and a matching profile with all required values.
+- Prompt or action:
+  Ask Codex to render the task using that profile.
+- Expected tool behavior:
+  `task_render`
+- Expected output:
+  `is_fully_resolved` is `true`.
+  `missing_variables` is empty.
+  `resolved_values` reflects the selected profile values.
+- Failure signals:
+  Fully provided profile values still leave unresolved placeholders.
+  Render output does not match stored profile values.
+
+### TC-023: Explicit variables override profile values
+
+- Version: `0.5.0`
+- Goal: Confirm render precedence follows explicit variables > profile values > environment variables.
+- Setup: Save a task and profile, then provide overrides in `variables_json`.
+- Prompt or action:
+  Ask Codex to render the task using both a profile and explicit overrides for fields like `base_url` or `email`.
+- Expected tool behavior:
+  `task_render(profile=..., variables_json=...)`
+- Expected output:
+  The rendered prompt uses explicit variable values instead of profile defaults.
+  `resolved_values` reflects the override precedence.
+- Failure signals:
+  Profile values override explicit inputs.
+  Rendered prompt does not match resolved precedence.
+
+### TC-024: Environment values are used when profile values are absent
+
+- Version: `0.5.0`
+- Goal: Confirm `task_render` can fall back to process environment variables.
+- Setup: Save a task with placeholders and provide one matching environment variable.
+- Prompt or action:
+  Ask Codex to render the task without a profile but with part of the data available in the environment.
+- Expected tool behavior:
+  `task_render`
+- Expected output:
+  Environment-provided values are included in `resolved_values`.
+  Missing placeholders are still reported explicitly.
+- Failure signals:
+  Environment values are ignored.
+  Missing placeholders are silently omitted.
+
+### TC-025: Incomplete task rendering reports missing variables
+
+- Version: `0.5.0`
+- Goal: Confirm partial renders stay safe and report what is still unresolved.
+- Setup: Save a task with multiple placeholders, but provide only a subset of values.
+- Prompt or action:
+  Ask Codex to render the task with only one or two variables supplied.
+- Expected tool behavior:
+  `task_render`
+- Expected output:
+  `is_fully_resolved` is `false`.
+  `missing_variables` lists the unresolved placeholders.
+- Failure signals:
+  Missing variables are not reported.
+  Task is marked fully resolved when placeholders remain.
+
+### TC-026: Rendered task previews can mask secret substitutions
+
+- Version: `0.5.0`
+- Goal: Confirm `task_render(mask_secrets=true)` masks secret values in both `resolved_values` and the rendered prompt preview.
+- Setup: Save a task with a secret placeholder and provide a value via profile or environment.
+- Prompt or action:
+  Ask Codex to render the task with masking enabled.
+- Expected tool behavior:
+  `task_render(mask_secrets=true)`
+- Expected output:
+  Secret values appear as `***MASKED***` in both `resolved_values` and the rendered prompt preview.
+- Failure signals:
+  Secret values are leaked in the rendered preview.
+  Masking only applies to metadata but not the rendered prompt.
+
 ## Recommended Workflow For Every Future Feature
 
 When we ship a new feature, we should add all of the following:

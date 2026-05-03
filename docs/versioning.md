@@ -141,3 +141,47 @@ Impact:
 - the MCP server now has a real testing vocabulary, not just browser control primitives
 - future saved tasks and natural-language workflows can end in explicit validation steps
 - this ship lays the foundation for pass/fail summaries, test reports, and more formalized sanity suites
+
+## 0.5.0
+
+Task variables, secret placeholders, and environment profiles.
+
+Added:
+
+- placeholder extraction for saved tasks such as `{{base_url}}`, `{{email}}`, and `{{password}}`
+- secret variable tracking on saved tasks
+- `task_render` for template rendering with merged values
+- environment profile tools:
+  `profile_save`
+  `profile_list`
+  `profile_get`
+  `profile_delete`
+
+Why this matters:
+
+- saved tasks no longer need to hardcode URLs or credentials
+- the task system can now support reusable flows across `local`, `staging`, and `prod`
+- this makes the agent safer and more portable for real sanity-testing workflows
+
+Testcase experience from this ship:
+
+- validation was done through temporary non-sensitive task and profile entries created via the MCP tools
+- placeholder extraction and secret-variable tracking worked correctly during `task_create`
+- profile lifecycle behavior passed for save, list, get, and delete
+- masked profile retrieval hid `password` values while leaving non-secret fields visible
+- `task_render` correctly resolved values from profiles, explicit overrides, and environment variables
+- precedence behaved as intended: explicit variables overrode profile values, and environment variables filled gaps when profile values were absent
+- incomplete renders correctly reported `missing_variables` and did not mark the task as fully resolved
+- cleanup succeeded, so the validation workflow did not leave temporary task/profile entries behind
+
+What we learned:
+
+- safe validation of profile support should avoid printing raw secret-bearing files and instead use masked tool responses
+- task rendering becomes much more useful when it reports both resolved and missing variables explicitly
+- masking behavior must be validated in both metadata and rendered prompt previews, not only in stored profile reads
+
+Impact:
+
+- the project now has the foundation for reusable environment-aware sanity tasks
+- future workflows can be templated once and reused across multiple deployment targets
+- this ship prepares the ground for safer task sharing, task authoring improvements, and more realistic multi-environment test execution
