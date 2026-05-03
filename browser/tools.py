@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import json
+import re
 from pathlib import Path
 from typing import Literal, Optional
 
@@ -696,6 +697,153 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                 "assert_text_contains",
                 f"Page text does not contain '{text}'",
                 text=text,
+            )
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def assert_text_matches(pattern: str) -> str:
+        """
+        Assert that visible page text matches a regular-expression pattern.
+
+        Args:
+            pattern: Regular expression pattern expected in the page text.
+
+        Returns:
+            Assertion result with pass/fail details.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            body_text = await browser_state.page.locator("body").inner_text()
+            matched = re.search(pattern, body_text, re.MULTILINE) is not None
+            await _record_assertion_result(
+                browser_state,
+                "assert_text_matches",
+                matched,
+                pattern=pattern,
+            )
+            if matched:
+                return _assertion_success(
+                    "assert_text_matches",
+                    f"Page text matches pattern '{pattern}'",
+                    pattern=pattern,
+                )
+            return _assertion_failure(
+                "assert_text_matches",
+                f"Page text does not match pattern '{pattern}'",
+                pattern=pattern,
+            )
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def assert_no_console_errors() -> str:
+        """
+        Assert that no error-level console messages have been captured in this session.
+
+        Returns:
+            Assertion result with any captured console errors.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            errors = [entry for entry in browser_state.console_logs if entry.get("type") == "error"]
+            passed = len(errors) == 0
+            await _record_assertion_result(
+                browser_state,
+                "assert_no_console_errors",
+                passed,
+                error_count=len(errors),
+            )
+            if passed:
+                return _assertion_success(
+                    "assert_no_console_errors",
+                    "No console errors captured",
+                    error_count=0,
+                )
+            return _assertion_failure(
+                "assert_no_console_errors",
+                "Console errors were captured",
+                error_count=len(errors),
+                console_errors=errors,
+            )
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def assert_no_failed_requests() -> str:
+        """
+        Assert that no failed network requests have been captured in this session.
+
+        Returns:
+            Assertion result with any failed request entries.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            failures = browser_state.failed_requests
+            passed = len(failures) == 0
+            await _record_assertion_result(
+                browser_state,
+                "assert_no_failed_requests",
+                passed,
+                failure_count=len(failures),
+            )
+            if passed:
+                return _assertion_success(
+                    "assert_no_failed_requests",
+                    "No failed requests captured",
+                    failure_count=0,
+                )
+            return _assertion_failure(
+                "assert_no_failed_requests",
+                "Failed requests were captured",
+                failure_count=len(failures),
+                failed_requests=failures,
+            )
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def assert_screenshot_stable(selector: str = "body") -> str:
+        """
+        Assert that a target section appears visually stable between two short interval screenshots.
+
+        Args:
+            selector: CSS selector of the section to compare. Defaults to the full body.
+
+        Returns:
+            Assertion result indicating whether the screenshots matched byte-for-byte.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            locator = browser_state.page.locator(selector).first
+            first = await locator.screenshot(type="png")
+            await asyncio.sleep(0.4)
+            second = await locator.screenshot(type="png")
+            passed = first == second
+            await _record_assertion_result(
+                browser_state,
+                "assert_screenshot_stable",
+                passed,
+                selector=selector,
+            )
+            if passed:
+                return _assertion_success(
+                    "assert_screenshot_stable",
+                    f"Screenshot is stable for {selector}",
+                    selector=selector,
+                )
+            return _assertion_failure(
+                "assert_screenshot_stable",
+                f"Screenshot changed for {selector}",
+                selector=selector,
             )
         except Exception as e:
             return json.dumps({"status": "error", "message": str(e)}, indent=2)
@@ -2078,6 +2226,236 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                 )
                 return json.dumps({"status": "success", "extracted_text": text}, indent=2)
             return json.dumps({"status": "error", "message": f"Element not found: {selector}"}, indent=2)
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def browser_extract_table(selector: str) -> str:
+        """
+        Extract table headers and row data from a page table.
+
+        Args:
+            selector: CSS selector of the table element.
+
+        Returns:
+            Structured table data with headers and rows.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            table = await browser_state.page.evaluate(
+                """
+                (selector) => {
+                    const table = document.querySelector(selector);
+                    if (!table) return null;
+                    const headers = Array.from(table.querySelectorAll('th')).map((th) =>
+                        (th.innerText || th.textContent || '').replace(/\\s+/g, ' ').trim()
+                    );
+                    const rows = Array.from(table.querySelectorAll('tbody tr')).map((row) =>
+                        Array.from(row.querySelectorAll('td, th')).map((cell) =>
+                            (cell.innerText || cell.textContent || '').replace(/\\s+/g, ' ').trim()
+                        )
+                    );
+                    return { headers, rows };
+                }
+                """,
+                selector,
+            )
+            if not table:
+                return json.dumps({"status": "error", "message": f"Table not found: {selector}"}, indent=2)
+
+            await _record_action(
+                browser_state,
+                "extract_table",
+                "success",
+                selector=selector,
+                rows=len(table.get("rows", [])),
+            )
+            return _success_payload(selector=selector, headers=table.get("headers", []), rows=table.get("rows", []))
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def browser_extract_list(selector: str) -> str:
+        """
+        Extract list items from a list-like container.
+
+        Args:
+            selector: CSS selector of a ul, ol, or custom list container.
+
+        Returns:
+            Structured list items and item count.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            items = await browser_state.page.evaluate(
+                """
+                (selector) => {
+                    const root = document.querySelector(selector);
+                    if (!root) return null;
+                    const nodes = root.matches('ul, ol')
+                        ? Array.from(root.querySelectorAll(':scope > li'))
+                        : Array.from(root.querySelectorAll('[role="listitem"], li'));
+                    return nodes.map((node) =>
+                        (node.innerText || node.textContent || '').replace(/\\s+/g, ' ').trim()
+                    ).filter(Boolean);
+                }
+                """,
+                selector,
+            )
+            if items is None:
+                return json.dumps({"status": "error", "message": f"List not found: {selector}"}, indent=2)
+
+            await _record_action(
+                browser_state,
+                "extract_list",
+                "success",
+                selector=selector,
+                items=len(items),
+            )
+            return _success_payload(selector=selector, items=items, item_count=len(items))
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def browser_extract_json_from_page() -> str:
+        """
+        Extract JSON-like data embedded in the current page.
+
+        Returns:
+            Candidate JSON payloads from script tags or common global objects.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            payloads = await browser_state.page.evaluate(
+                """
+                () => {
+                    const results = [];
+                    const jsonScripts = Array.from(document.querySelectorAll('script[type="application/json"], script[type="application/ld+json"]'));
+                    for (const script of jsonScripts.slice(0, 20)) {
+                        const text = (script.textContent || '').trim();
+                        if (text) {
+                            results.push({
+                                source: script.getAttribute('type') || 'script',
+                                content: text.slice(0, 5000),
+                            });
+                        }
+                    }
+
+                    const globals = ['__NEXT_DATA__', '__INITIAL_STATE__', '__APOLLO_STATE__'];
+                    for (const key of globals) {
+                        if (window[key]) {
+                            results.push({
+                                source: key,
+                                content: JSON.stringify(window[key]).slice(0, 5000),
+                            });
+                        }
+                    }
+                    return results;
+                }
+                """
+            )
+            await _record_action(
+                browser_state,
+                "extract_json_from_page",
+                "success",
+                payloads=len(payloads),
+            )
+            return _success_payload(payloads=payloads, payload_count=len(payloads))
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def browser_extract_links() -> str:
+        """
+        Extract all visible links from the current page.
+
+        Returns:
+            Link text and URLs for navigation validation.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            links = await browser_state.page.evaluate(
+                """
+                () => Array.from(document.querySelectorAll('a[href]')).map((el) => ({
+                    text: (el.innerText || el.textContent || '').replace(/\\s+/g, ' ').trim(),
+                    href: el.href || '',
+                })).filter((item) => item.text || item.href)
+                """
+            )
+            await _record_action(browser_state, "extract_links", "success", links=len(links))
+            return _success_payload(links=links, link_count=len(links))
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def browser_capture_section(selector: str) -> str:
+        """
+        Capture text and a screenshot for a specific page section.
+
+        Args:
+            selector: CSS selector of the section to capture.
+
+        Returns:
+            Section text plus a base64 screenshot snippet.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            locator = browser_state.page.locator(selector).first
+            text = await locator.inner_text()
+            screenshot_bytes = await locator.screenshot(type="png")
+            screenshot_b64 = base64.b64encode(screenshot_bytes).decode()
+            await _record_action(browser_state, "capture_section", "success", selector=selector)
+            return _success_payload(
+                selector=selector,
+                text=text,
+                screenshot_base64=screenshot_b64,
+            )
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def browser_compare_text(selector: str, expected: str) -> str:
+        """
+        Compare an element's text against an expected string.
+
+        Args:
+            selector: CSS selector of the element.
+            expected: Expected text value.
+
+        Returns:
+            Comparison result with actual text and a pass flag.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            locator = browser_state.page.locator(selector).first
+            actual = (await locator.inner_text()).strip()
+            passed = actual == expected
+            await _record_action(
+                browser_state,
+                "compare_text",
+                "passed" if passed else "failed",
+                selector=selector,
+                expected=expected,
+                actual=actual,
+            )
+            return _success_payload(
+                selector=selector,
+                expected=expected,
+                actual=actual,
+                passed=passed,
+            )
         except Exception as e:
             return json.dumps({"status": "error", "message": str(e)}, indent=2)
 
