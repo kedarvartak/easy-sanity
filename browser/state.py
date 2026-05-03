@@ -22,6 +22,9 @@ class BrowserState:
         self.screenshots_root: Optional[Path] = None
         self.step_counter: int = 0
         self.last_domain_summary: Optional[dict] = None
+        self.console_logs: list[dict] = []
+        self.network_requests: list[dict] = []
+        self.failed_requests: list[dict] = []
 
     async def initialize(self, headless: bool = False):
         if self.browser is None:
@@ -29,6 +32,62 @@ class BrowserState:
             self.browser = await self.playwright.chromium.launch(headless=headless)
             self.page = await self.browser.new_page()
             self.page.set_default_timeout(browser_default_timeout_ms())
+            self._attach_page_listeners()
+
+    def _attach_page_listeners(self) -> None:
+        if not self.page:
+            return
+
+        self.page.on("console", self._handle_console_message)
+        self.page.on("request", self._handle_request_started)
+        self.page.on("response", self._handle_response_received)
+        self.page.on("requestfailed", self._handle_request_failed)
+
+    def _handle_console_message(self, message) -> None:
+        entry = {
+            "type": message.type,
+            "text": message.text,
+            "location": message.location,
+        }
+        self.console_logs.append(entry)
+        self.console_logs = self.console_logs[-200:]
+
+    def _handle_request_started(self, request) -> None:
+        entry = {
+            "event": "request",
+            "method": request.method,
+            "url": request.url,
+            "resource_type": request.resource_type,
+        }
+        self.network_requests.append(entry)
+        self.network_requests = self.network_requests[-500:]
+
+    def _handle_response_received(self, response) -> None:
+        request = response.request
+        entry = {
+            "event": "response",
+            "method": request.method,
+            "url": response.url,
+            "resource_type": request.resource_type,
+            "status": response.status,
+            "ok": response.ok,
+        }
+        self.network_requests.append(entry)
+        self.network_requests = self.network_requests[-500:]
+
+    def _handle_request_failed(self, request) -> None:
+        failure = request.failure
+        entry = {
+            "event": "requestfailed",
+            "method": request.method,
+            "url": request.url,
+            "resource_type": request.resource_type,
+            "failure_text": failure.error_text if failure else "unknown failure",
+        }
+        self.failed_requests.append(entry)
+        self.failed_requests = self.failed_requests[-200:]
+        self.network_requests.append(entry)
+        self.network_requests = self.network_requests[-500:]
 
     def begin_session(self, task: str) -> None:
         timestamp = utc_timestamp_slug()
@@ -39,6 +98,10 @@ class BrowserState:
         self.screenshots_root = ensure_directory(screenshots_dir()) / self.session_slug
         ensure_directory(self.screenshots_root)
         self.step_counter = 0
+        self.console_logs = []
+        self.network_requests = []
+        self.failed_requests = []
+        self.last_domain_summary = None
 
     async def cleanup(self):
         if self.page:
@@ -58,3 +121,6 @@ class BrowserState:
         self.screenshots_root = None
         self.step_counter = 0
         self.last_domain_summary = None
+        self.console_logs = []
+        self.network_requests = []
+        self.failed_requests = []

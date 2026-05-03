@@ -117,6 +117,11 @@ def _assertion_failure(assertion: str, message: str, **details) -> str:
     return json.dumps(payload, indent=2)
 
 
+def _success_payload(**payload) -> str:
+    payload.setdefault("status", "success")
+    return json.dumps(payload, indent=2)
+
+
 async def _resolve_field_locator(browser_state: BrowserState, field: str):
     """
     Resolve a human-friendly field description to a Playwright locator.
@@ -163,6 +168,23 @@ async def _resolve_field_locator(browser_state: BrowserState, field: str):
     if await fallback.count() > 0:
         return "attribute_contains", fallback
 
+    return None
+
+
+async def _resolve_clickable_by_label(browser_state: BrowserState, name: str):
+    page = browser_state.page
+    if page is None:
+        return None
+
+    strategies = [
+        ("label", page.get_by_label(name, exact=False).first),
+        ("text", page.get_by_text(name, exact=False).first),
+        ("button", page.get_by_role("button", name=name, exact=False).first),
+        ("link", page.get_by_role("link", name=name, exact=False).first),
+    ]
+    for strategy_name, locator in strategies:
+        if await locator.count() > 0:
+            return strategy_name, locator
     return None
 
 
@@ -587,6 +609,212 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
             return json.dumps({"status": "error", "message": str(e)}, indent=2)
 
     @mcp.tool()
+    async def browser_get_accessibility_tree() -> str:
+        """
+        Return an accessibility-oriented snapshot of interactive page elements.
+
+        Returns:
+            A simplified accessibility tree with roles, accessible names, labels, and disabled state.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            tree = await browser_state.page.evaluate(
+                """
+                () => {
+                    function safeText(value, limit = 120) {
+                        return (value || '').replace(/\\s+/g, ' ').trim().slice(0, limit);
+                    }
+
+                    function labelText(el) {
+                        if (el.labels && el.labels.length) {
+                            return Array.from(el.labels)
+                                .map((label) => safeText(label.innerText || label.textContent || '', 80))
+                                .filter(Boolean)
+                                .join(' ');
+                        }
+                        if (el.id) {
+                            const label = document.querySelector(`label[for="${el.id}"]`);
+                            if (label) {
+                                return safeText(label.innerText || label.textContent || '', 80);
+                            }
+                        }
+                        return '';
+                    }
+
+                    const selectors = 'a, button, input, select, textarea, [role], summary';
+                    return Array.from(document.querySelectorAll(selectors)).slice(0, 120).map((el, index) => ({
+                        index,
+                        tag: el.tagName.toLowerCase(),
+                        role: el.getAttribute('role') || '',
+                        name: safeText(
+                            el.getAttribute('aria-label') ||
+                            el.innerText ||
+                            el.textContent ||
+                            el.getAttribute('value') ||
+                            '',
+                            120
+                        ),
+                        label: labelText(el),
+                        placeholder: safeText(el.getAttribute('placeholder') || '', 80),
+                        type: el.getAttribute('type') || '',
+                        disabled: !!el.disabled || el.getAttribute('aria-disabled') === 'true',
+                        id: el.id || '',
+                        name_attr: el.getAttribute('name') || '',
+                    })).filter((item) => item.name || item.label || item.role || item.placeholder);
+                }
+                """
+            )
+            await _record_action(browser_state, "get_accessibility_tree", "success", nodes=len(tree))
+            return _success_payload(nodes=tree, node_count=len(tree))
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def browser_list_links() -> str:
+        """
+        List visible links on the current page.
+
+        Returns:
+            Link text, href, and a small accessibility-friendly summary.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            links = await browser_state.page.evaluate(
+                """
+                () => Array.from(document.querySelectorAll('a[href]')).slice(0, 120).map((el, index) => ({
+                    index,
+                    text: (el.innerText || el.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 120),
+                    href: el.href || '',
+                    title: el.getAttribute('title') || '',
+                    aria_label: el.getAttribute('aria-label') || '',
+                })).filter((item) => item.text || item.href)
+                """
+            )
+            await _record_action(browser_state, "list_links", "success", links=len(links))
+            return _success_payload(links=links, link_count=len(links))
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def browser_list_network_errors() -> str:
+        """
+        List failed network requests and error-level console messages captured in this session.
+
+        Returns:
+            Runtime network and console failures useful for sanity-test debugging.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            console_errors = [entry for entry in browser_state.console_logs if entry.get("type") == "error"]
+            await _record_action(
+                browser_state,
+                "list_network_errors",
+                "success",
+                failed_requests=len(browser_state.failed_requests),
+                console_errors=len(console_errors),
+            )
+            return _success_payload(
+                failed_requests=browser_state.failed_requests,
+                console_errors=console_errors,
+                failure_count=len(browser_state.failed_requests) + len(console_errors),
+            )
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def browser_get_console_logs(level: str = "") -> str:
+        """
+        Return captured console logs for the current browser session.
+
+        Args:
+            level: Optional filter such as "error", "warning", or "log".
+
+        Returns:
+            Session console messages, optionally filtered by type.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            logs = browser_state.console_logs
+            if level:
+                logs = [entry for entry in logs if entry.get("type") == level]
+            await _record_action(browser_state, "get_console_logs", "success", level=level or "all", count=len(logs))
+            return _success_payload(logs=logs, count=len(logs), level=level or "all")
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def browser_get_requests(limit: int = 100) -> str:
+        """
+        Return recent network request activity for the current session.
+
+        Args:
+            limit: Maximum number of request events to return.
+
+        Returns:
+            Recent request and response events captured by the browser session.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            requests = browser_state.network_requests[-max(limit, 1) :]
+            await _record_action(browser_state, "get_requests", "success", count=len(requests), limit=limit)
+            return _success_payload(requests=requests, count=len(requests))
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def browser_get_storage() -> str:
+        """
+        Inspect cookies, localStorage, and sessionStorage for the current page.
+
+        Returns:
+            Browser storage useful for auth and session debugging.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            cookies = await browser_state.page.context.cookies()
+            storage = await browser_state.page.evaluate(
+                """
+                () => ({
+                    local_storage: Object.fromEntries(
+                        Array.from({ length: window.localStorage.length }, (_, i) => {
+                            const key = window.localStorage.key(i);
+                            return [key, window.localStorage.getItem(key)];
+                        })
+                    ),
+                    session_storage: Object.fromEntries(
+                        Array.from({ length: window.sessionStorage.length }, (_, i) => {
+                            const key = window.sessionStorage.key(i);
+                            return [key, window.sessionStorage.getItem(key)];
+                        })
+                    ),
+                })
+                """
+            )
+            await _record_action(
+                browser_state,
+                "get_storage",
+                "success",
+                cookies=len(cookies),
+                local_storage_keys=len(storage.get("local_storage", {})),
+                session_storage_keys=len(storage.get("session_storage", {})),
+            )
+            return _success_payload(cookies=cookies, **storage)
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
     async def browser_navigate(url: str) -> str:
         """
         Navigate to a URL.
@@ -813,6 +1041,48 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
             return json.dumps({"status": "error", "message": str(e)}, indent=2)
 
     @mcp.tool()
+    async def browser_click_by_label(name: str) -> str:
+        """
+        Click an element using a human-readable label, visible text, or accessible name.
+
+        Args:
+            name: Label or visible name of the target element.
+
+        Returns:
+            Confirmation of the click and the matched strategy.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            resolved = await _resolve_clickable_by_label(browser_state, name)
+            if not resolved:
+                return json.dumps(
+                    {"status": "error", "message": f"Could not find a clickable element for label '{name}'."},
+                    indent=2,
+                )
+
+            strategy_name, locator = resolved
+            await locator.click()
+            await asyncio.sleep(1)
+
+            await _record_action(
+                browser_state,
+                "click_by_label",
+                "success",
+                name=name,
+                strategy=strategy_name,
+            )
+            return _success_payload(
+                message=f"Clicked element for label '{name}'",
+                name=name,
+                matched_by=strategy_name,
+                url=browser_state.page.url,
+            )
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
     async def browser_fill(field: str, text: str, press_enter: bool = False) -> str:
         """
         Fill an input using a human-friendly field description.
@@ -865,6 +1135,96 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                 },
                 indent=2,
             )
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def browser_select_option(label: str, value: str) -> str:
+        """
+        Select an option from a select control using a human-friendly label.
+
+        Args:
+            label: Label or identifier for the select control.
+            value: Option value or visible label to choose.
+
+        Returns:
+            Confirmation of which matching strategy was used.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            resolved = await _resolve_field_locator(browser_state, label)
+            if not resolved:
+                return json.dumps(
+                    {"status": "error", "message": FILL_FIELD_NOT_FOUND_TEMPLATE.format(field=label)},
+                    indent=2,
+                )
+
+            strategy_name, locator = resolved
+            try:
+                await locator.select_option(value=value)
+            except Exception:
+                await locator.select_option(label=value)
+
+            await _record_action(
+                browser_state,
+                "select_option",
+                "success",
+                label=label,
+                value=value,
+                strategy=strategy_name,
+            )
+            return _success_payload(
+                message=f"Selected '{value}' for '{label}'",
+                label=label,
+                value=value,
+                matched_by=strategy_name,
+            )
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def browser_press_key(key: str) -> str:
+        """
+        Press a keyboard key on the current page.
+
+        Args:
+            key: Playwright key name such as Enter, Escape, Tab, ArrowDown, or Control+A.
+
+        Returns:
+            Confirmation of the key press.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            await browser_state.page.keyboard.press(key)
+            await asyncio.sleep(0.2)
+            await _record_action(browser_state, "press_key", "success", key=key)
+            return _success_payload(message=f"Pressed key '{key}'", key=key)
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def browser_hover(selector: str) -> str:
+        """
+        Hover over a page element.
+
+        Args:
+            selector: CSS selector of the target element.
+
+        Returns:
+            Confirmation of the hover action.
+        """
+        if not browser_state.page:
+            return _browser_not_started_error()
+
+        try:
+            await browser_state.page.hover(selector)
+            await asyncio.sleep(0.2)
+            await _record_action(browser_state, "hover", "success", selector=selector)
+            return _success_payload(message=f"Hovered over {selector}", selector=selector)
         except Exception as e:
             return json.dumps({"status": "error", "message": str(e)}, indent=2)
 
