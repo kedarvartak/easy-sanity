@@ -1,22 +1,19 @@
 import json
 import os
 import re
-from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.prompts import Prompt
 
+from config.settings import PROFILES_FILE, SAMPLE_TASKS_FILE, TASKS_FILE
 from prompts import TASK_EXECUTION_PROMPT_TEMPLATE, TASK_WIZARD_PROMPT_TEMPLATE
-from settings import SAMPLE_TASKS_FILE
 
 
-TASKS_FILE = Path(__file__).parent / "tasks.json"
-PROFILES_FILE = Path(__file__).parent / "profiles.json"
 PLACEHOLDER_PATTERN = re.compile(r"{{\s*([a-zA-Z0-9_]+)\s*}}")
 
 
 def load_tasks_from_disk() -> dict[str, dict]:
-    """Load all saved tasks from tasks.json."""
+    """Load all saved tasks from the data task store."""
     if TASKS_FILE.exists():
         with open(TASKS_FILE) as f:
             return json.load(f)
@@ -24,13 +21,13 @@ def load_tasks_from_disk() -> dict[str, dict]:
 
 
 def save_tasks_to_disk(tasks: dict[str, dict]) -> None:
-    """Persist all tasks to tasks.json."""
+    """Persist all tasks to the data task store."""
     with open(TASKS_FILE, "w") as f:
         json.dump(tasks, f, indent=2)
 
 
 def load_profiles_from_disk() -> dict[str, dict]:
-    """Load saved environment profiles from profiles.json."""
+    """Load saved environment profiles from the data profile store."""
     if PROFILES_FILE.exists():
         with open(PROFILES_FILE) as f:
             return json.load(f)
@@ -38,7 +35,7 @@ def load_profiles_from_disk() -> dict[str, dict]:
 
 
 def save_profiles_to_disk(profiles: dict[str, dict]) -> None:
-    """Persist environment profiles to profiles.json."""
+    """Persist environment profiles to the data profile store."""
     with open(PROFILES_FILE, "w") as f:
         json.dump(profiles, f, indent=2)
 
@@ -650,7 +647,7 @@ def register_task_tools(mcp: FastMCP) -> None:
     @mcp.tool()
     def sample_tasks_import(names_json: str = "[]", overwrite: bool = False) -> str:
         """
-        Import bundled sample tasks into tasks.json and register them as prompts.
+        Import bundled sample tasks into the saved task store and register them as prompts.
 
         Args:
             names_json: Optional JSON array of sample task names to import. Imports all if empty.

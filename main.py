@@ -1,8 +1,8 @@
 from mcp.server.fastmcp import FastMCP
 
-from browser_state import BrowserState
-from browser_tools import register_browser_tools
-from task_tools import load_tasks_as_prompts, register_task_tools
+from browser.state import BrowserState
+from browser.tools import register_browser_tools
+from tasks.tools import load_tasks_as_prompts, register_task_tools
 
 
 mcp = FastMCP("BrowserAgentServer")

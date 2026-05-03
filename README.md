@@ -137,7 +137,7 @@ press Enter, and return the titles of the first 3 results."
 ```
 
 The AI calls `task_create("google_search", "...")` which:
-1. Saves the task to `tasks.json`
+1. Saves the task to `data/tasks.json`
 2. Registers it as the `/google_search` slash-command in your IDE
 
 ### Run a saved task
@@ -151,7 +151,7 @@ the full browser instruction and executes it using the browser tools automatical
 - `task_get(name)` - view a task's full prompt
 - `task_delete(name)` - remove a task
 
-Tasks persist across server restarts via `tasks.json`.
+Tasks persist across server restarts via `data/tasks.json`.
 
 ## Basic Usage (without saved tasks)
 

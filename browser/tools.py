@@ -5,13 +5,74 @@ from typing import Literal, Optional
 
 from mcp.server.fastmcp import FastMCP
 
-from browser_state import BrowserState
+from browser.report_manager import (
+    ensure_directory,
+    iso_timestamp,
+    render_markdown_report,
+    screenshot_filename,
+)
+from browser.state import BrowserState
+from config.settings import browser_headless_default
 from prompts import FIND_ELEMENT_RESULT_MESSAGE, FILL_FIELD_NOT_FOUND_TEMPLATE
-from settings import browser_headless_default
 
 
 def _browser_not_started_error() -> str:
     return json.dumps({"status": "error", "message": "Browser not started"}, indent=2)
+
+
+def _sanitize_recorded_details(action: str, details: dict) -> dict:
+    sanitized = {}
+    for key, value in details.items():
+        key_lower = str(key).lower()
+        value_str = str(value)
+
+        if any(marker in key_lower for marker in ("password", "secret", "token", "api_key", "apikey")):
+            sanitized[key] = "***MASKED***"
+            continue
+
+        if key_lower == "text":
+            field_hint = str(details.get("field", "")) + " " + str(details.get("selector", ""))
+            if "password" in field_hint.lower():
+                sanitized[key] = "***MASKED***"
+                continue
+
+        sanitized[key] = value_str
+
+    return sanitized
+
+
+async def _record_action(browser_state: BrowserState, action: str, status: str = "success", **details) -> dict:
+    browser_state.step_counter += 1
+    screenshot_path = None
+    current_url = ""
+    current_title = ""
+
+    if browser_state.page:
+        current_url = browser_state.page.url
+        try:
+            current_title = await browser_state.page.title()
+        except Exception:
+            current_title = ""
+
+        if browser_state.screenshots_root:
+            ensure_directory(browser_state.screenshots_root)
+            screenshot_path = browser_state.screenshots_root / screenshot_filename(
+                browser_state.step_counter, action, status
+            )
+            await browser_state.page.screenshot(path=str(screenshot_path), type="png", full_page=False)
+
+    entry = {
+        "step": browser_state.step_counter,
+        "action": action,
+        "status": status,
+        "timestamp": iso_timestamp(),
+        "url": current_url,
+        "title": current_title,
+        "details": _sanitize_recorded_details(action, details),
+        "screenshot_path": str(screenshot_path) if screenshot_path else None,
+    }
+    browser_state.action_history.append(entry)
+    return entry
 
 
 def _assertion_success(assertion: str, message: str, **details) -> str:
@@ -103,12 +164,12 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
         try:
             current_url = browser_state.page.url
             passed = expected_text in current_url
-            browser_state.action_history.append(
-                {
-                    "action": "assert_url_contains",
-                    "expected_text": expected_text,
-                    "passed": passed,
-                }
+            await _record_action(
+                browser_state,
+                "assert_url_contains",
+                "passed" if passed else "failed",
+                expected_text=expected_text,
+                passed=passed,
             )
             if passed:
                 return _assertion_success(
@@ -143,12 +204,12 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
         try:
             locator = browser_state.page.get_by_text(text, exact=False).first
             passed = await locator.count() > 0 and await locator.is_visible()
-            browser_state.action_history.append(
-                {
-                    "action": "assert_text_visible",
-                    "text": text,
-                    "passed": passed,
-                }
+            await _record_action(
+                browser_state,
+                "assert_text_visible",
+                "passed" if passed else "failed",
+                text=text,
+                passed=passed,
             )
             if passed:
                 return _assertion_success(
@@ -182,12 +243,12 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
             locator = browser_state.page.get_by_text(text, exact=False).first
             visible = await locator.count() > 0 and await locator.is_visible()
             passed = not visible
-            browser_state.action_history.append(
-                {
-                    "action": "assert_text_not_visible",
-                    "text": text,
-                    "passed": passed,
-                }
+            await _record_action(
+                browser_state,
+                "assert_text_not_visible",
+                "passed" if passed else "failed",
+                text=text,
+                passed=passed,
             )
             if passed:
                 return _assertion_success(
@@ -220,13 +281,13 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
         try:
             count = await browser_state.page.locator(selector).count()
             passed = count > 0
-            browser_state.action_history.append(
-                {
-                    "action": "assert_element_exists",
-                    "selector": selector,
-                    "passed": passed,
-                    "count": count,
-                }
+            await _record_action(
+                browser_state,
+                "assert_element_exists",
+                "passed" if passed else "failed",
+                selector=selector,
+                passed=passed,
+                count=count,
             )
             if passed:
                 return _assertion_success(
@@ -262,13 +323,13 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
             locator = browser_state.page.locator(selector).first
             count = await locator.count()
             if count == 0:
-                browser_state.action_history.append(
-                    {
-                        "action": "assert_element_enabled",
-                        "selector": selector,
-                        "passed": False,
-                        "reason": "missing",
-                    }
+                await _record_action(
+                    browser_state,
+                    "assert_element_enabled",
+                    "failed",
+                    selector=selector,
+                    passed=False,
+                    reason="missing",
                 )
                 return _assertion_failure(
                     "assert_element_enabled",
@@ -277,12 +338,12 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                 )
 
             enabled = await locator.is_enabled()
-            browser_state.action_history.append(
-                {
-                    "action": "assert_element_enabled",
-                    "selector": selector,
-                    "passed": enabled,
-                }
+            await _record_action(
+                browser_state,
+                "assert_element_enabled",
+                "passed" if enabled else "failed",
+                selector=selector,
+                passed=enabled,
             )
             if enabled:
                 return _assertion_success(
@@ -315,12 +376,12 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
         try:
             title = await browser_state.page.title()
             passed = expected_text in title
-            browser_state.action_history.append(
-                {
-                    "action": "assert_page_title",
-                    "expected_text": expected_text,
-                    "passed": passed,
-                }
+            await _record_action(
+                browser_state,
+                "assert_page_title",
+                "passed" if passed else "failed",
+                expected_text=expected_text,
+                passed=passed,
             )
             if passed:
                 return _assertion_success(
@@ -356,14 +417,14 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
         try:
             actual = await browser_state.page.locator(selector).count()
             passed = actual == expected
-            browser_state.action_history.append(
-                {
-                    "action": "assert_count",
-                    "selector": selector,
-                    "expected": expected,
-                    "actual": actual,
-                    "passed": passed,
-                }
+            await _record_action(
+                browser_state,
+                "assert_count",
+                "passed" if passed else "failed",
+                selector=selector,
+                expected=expected,
+                actual=actual,
+                passed=passed,
             )
             if passed:
                 return _assertion_success(
@@ -400,6 +461,14 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
             await browser_state.initialize(headless=resolved_headless)
             browser_state.task_description = task
             browser_state.action_history = []
+            browser_state.begin_session(task)
+            await _record_action(
+                browser_state,
+                "browser_start",
+                "success",
+                task=task,
+                headless=resolved_headless,
+            )
 
             return json.dumps(
                 {
@@ -506,7 +575,7 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
             await browser_state.page.goto(url, wait_until="networkidle")
             title = await browser_state.page.title()
 
-            browser_state.action_history.append({"action": "navigate", "url": url})
+            await _record_action(browser_state, "navigate", "success", target_url=url)
 
             return json.dumps(
                 {
@@ -653,12 +722,12 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                 {"description": description, "limit": limit},
             )
 
-            browser_state.action_history.append(
-                {
-                    "action": "find_element",
-                    "description": description,
-                    "matches": len(candidates),
-                }
+            await _record_action(
+                browser_state,
+                "find_element",
+                "success",
+                description=description,
+                matches=len(candidates),
             )
 
             return json.dumps(
@@ -694,13 +763,13 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
             await locator.click()
             await asyncio.sleep(1)
 
-            browser_state.action_history.append(
-                {
-                    "action": "click_by_role",
-                    "role": role,
-                    "name": name,
-                    "exact": exact,
-                }
+            await _record_action(
+                browser_state,
+                "click_by_role",
+                "success",
+                role=role,
+                name=name,
+                exact=exact,
             )
 
             return json.dumps(
@@ -748,13 +817,13 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                 await locator.press("Enter")
                 await asyncio.sleep(1)
 
-            browser_state.action_history.append(
-                {
-                    "action": "fill",
-                    "field": field,
-                    "strategy": strategy_name,
-                    "text": text,
-                }
+            await _record_action(
+                browser_state,
+                "fill",
+                "success",
+                field=field,
+                strategy=strategy_name,
+                text=text,
             )
 
             return json.dumps(
@@ -812,7 +881,14 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                     indent=2,
                 )
 
-            browser_state.action_history.append({"action": "click", "selector": selector, "text": text})
+            await _record_action(
+                browser_state,
+                "click",
+                "success",
+                selector=selector or "",
+                text=text or "",
+                element_index=element_index if element_index is not None else "",
+            )
             await asyncio.sleep(1)
 
             return json.dumps(
@@ -850,7 +926,14 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                 await browser_state.page.press(selector, "Enter")
                 await asyncio.sleep(1)
 
-            browser_state.action_history.append({"action": "type", "selector": selector, "text": text})
+            await _record_action(
+                browser_state,
+                "type",
+                "success",
+                selector=selector,
+                text=text,
+                pressed_enter=press_enter,
+            )
 
             return json.dumps(
                 {
@@ -881,8 +964,12 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
         try:
             scroll_amount = amount if direction == "down" else -amount
             await browser_state.page.evaluate(f"window.scrollBy(0, {scroll_amount})")
-            browser_state.action_history.append(
-                {"action": "scroll", "direction": direction, "amount": amount}
+            await _record_action(
+                browser_state,
+                "scroll",
+                "success",
+                direction=direction,
+                amount=amount,
             )
             await asyncio.sleep(0.5)
 
@@ -911,7 +998,12 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
             element = await browser_state.page.query_selector(selector)
             if element:
                 text = await element.inner_text()
-                browser_state.action_history.append({"action": "extract", "selector": selector})
+                await _record_action(
+                    browser_state,
+                    "extract",
+                    "success",
+                    selector=selector,
+                )
                 return json.dumps({"status": "success", "extracted_text": text}, indent=2)
             return json.dumps({"status": "error", "message": f"Element not found: {selector}"}, indent=2)
         except Exception as e:
@@ -935,7 +1027,12 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
 
         try:
             await asyncio.sleep(seconds)
-            browser_state.action_history.append({"action": "wait", "seconds": seconds})
+            await _record_action(
+                browser_state,
+                "wait",
+                "success",
+                seconds=seconds,
+            )
             return json.dumps({"status": "success", "message": f"Waited {seconds}s"}, indent=2)
         except Exception as e:
             return json.dumps({"status": "error", "message": str(e)}, indent=2)
@@ -954,6 +1051,28 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
         try:
             history = browser_state.action_history.copy()
             task = browser_state.task_description
+            report_path = browser_state.report_path
+            screenshots_root = browser_state.screenshots_root
+            started_at = browser_state.started_at
+            session_slug = browser_state.session_slug
+            final_summary = final_result or "Session completed"
+            await _record_action(browser_state, "browser_stop", "success", final_result=final_summary)
+            history = browser_state.action_history.copy()
+
+            if report_path and screenshots_root:
+                markdown = render_markdown_report(
+                    task=task,
+                    session_slug=session_slug,
+                    started_at=started_at,
+                    finished_at=iso_timestamp(),
+                    final_result=final_summary,
+                    actions=history,
+                    screenshots_root=screenshots_root,
+                    report_path=report_path,
+                )
+                report_path.parent.mkdir(parents=True, exist_ok=True)
+                report_path.write_text(markdown)
+
             await browser_state.cleanup()
 
             return json.dumps(
@@ -963,7 +1082,9 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                     "task": task,
                     "actions_taken": len(history),
                     "action_history": history,
-                    "final_result": final_result or "Session completed",
+                    "final_result": final_summary,
+                    "report_path": str(report_path) if report_path else None,
+                    "screenshots_directory": str(screenshots_root) if screenshots_root else None,
                 },
                 indent=2,
             )
@@ -982,8 +1103,13 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
             {
                 "status": "success",
                 "task": browser_state.task_description,
+                "session_slug": browser_state.session_slug,
                 "action_count": len(browser_state.action_history),
                 "actions": browser_state.action_history,
+                "report_path": str(browser_state.report_path) if browser_state.report_path else None,
+                "screenshots_directory": (
+                    str(browser_state.screenshots_root) if browser_state.screenshots_root else None
+                ),
             },
             indent=2,
         )

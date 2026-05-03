@@ -107,7 +107,7 @@ This gives the model enough context to choose the next action.
 
 ### Persistent saved tasks
 
-The project stores task definitions in `tasks.json` and registers them as MCP prompts.
+The project stores task definitions in `data/tasks.json` and registers them as MCP prompts.
 
 This enables:
 

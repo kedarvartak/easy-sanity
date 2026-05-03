@@ -134,7 +134,7 @@ Use this structure for every new feature:
   `task_get` returns matching name, description, and prompt.
   Deleted task no longer appears after removal.
 - Failure signals:
-  Task is not persisted to `tasks.json`.
+  Task is not persisted to `data/tasks.json`.
   Prompt registration does not update.
   Deleted task remains available.
 
@@ -225,8 +225,8 @@ Use this structure for every new feature:
 ### TC-010: Saved task prompts still load after refactor
 
 - Version: `0.3.0`
-- Goal: Confirm `tasks.json` is still read and prompts are still registered at startup.
-- Setup: Ensure at least one saved task exists in `tasks.json`.
+- Goal: Confirm `data/tasks.json` is still read and prompts are still registered at startup.
+- Setup: Ensure at least one saved task exists in `data/tasks.json`.
 - Prompt or action:
   Start the MCP server and inspect whether the saved task is available for invocation in Codex.
 - Expected tool behavior:
@@ -235,7 +235,7 @@ Use this structure for every new feature:
   Saved tasks remain available exactly as before the refactor.
 - Failure signals:
   Saved tasks disappear.
-  Prompt registration no longer reflects `tasks.json`.
+  Prompt registration no longer reflects `data/tasks.json`.
 
 ### TC-011: Browser tools still share the same session state
 

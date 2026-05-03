@@ -15,7 +15,7 @@ Included:
 - local MCP server for browser automation
 - Playwright-backed Chromium control
 - browser tools for start, navigate, inspect, click, type, scroll, extract, wait, stop, and history
-- saved task support through `tasks.json`
+- saved task support through `data/tasks.json`
 - MCP prompt registration for reusable slash-command style tasks
 
 ## 0.2.0
@@ -231,7 +231,7 @@ Added:
 
 - one-command setup script at `scripts/setup.sh`
 - runtime defaults through environment-aware settings
-- bundled sample task pack in `sample_tasks.json`
+- bundled sample task pack in `data/sample_tasks.json`
 - onboarding MCP tools:
   `sample_tasks_list`
   `sample_tasks_import`
