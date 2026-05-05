@@ -73,7 +73,32 @@ The codebase is organized into focused modules:
 
 ## Installation
 
-### Quick Start
+### Quick Start Without Cloning
+
+```bash
+uvx easy-sanity install-browser
+```
+
+Then point your MCP client at:
+
+```bash
+uvx easy-sanity
+```
+
+### Permanent Install With `pipx`
+
+```bash
+pipx install easy-sanity
+easy-sanity install-browser
+```
+
+Then point your MCP client at:
+
+```bash
+easy-sanity
+```
+
+### Source Checkout Setup
 
 ```bash
 ./scripts/setup.sh
@@ -102,13 +127,8 @@ Use a config like this:
 {
   "mcpServers": {
     "easy-sanity": {
-      "command": "uv",
-      "args": [
-        "--directory",
-        "/absolute/path/to/use_browser",
-        "run",
-        "main.py"
-      ],
+      "command": "uvx",
+      "args": ["easy-sanity"],
       "env": {
         "BROWSER_HEADLESS_DEFAULT": "true",
         "BROWSER_DEFAULT_TIMEOUT_MS": "45000",
@@ -132,7 +152,7 @@ codex mcp add easy-sanity \
   --env BROWSER_SCREENSHOTS_DIR=artifacts/screenshots \
   --env BROWSER_DOWNLOADS_DIR=artifacts/downloads \
   --env APP_MEMORY_DIR=data/app_memory \
-  -- uv --directory "/absolute/path/to/use_browser" run main.py
+  -- uvx easy-sanity
 ```
 
 After setup:
@@ -149,7 +169,10 @@ Example MCP configuration is also included in:
 - `mcp-config-example.json`
 - `README.md`
 
-The same `uv --directory ... run main.py` launch pattern works for Claude Code, Cursor, and similar IDEs with MCP support.
+The same packaged launch pattern works for Claude Code, Cursor, and similar IDEs with MCP support:
+
+- `uvx easy-sanity`
+- or `easy-sanity` after a `pipx install easy-sanity`
 
 ## Environment Variables
 
@@ -159,10 +182,10 @@ The project supports these runtime environment variables:
 |---|---|---|
 | `BROWSER_HEADLESS_DEFAULT` | Whether `browser_start` runs headless by default | `false` |
 | `BROWSER_DEFAULT_TIMEOUT_MS` | Default Playwright timeout in milliseconds | `30000` |
-| `BROWSER_REPORTS_DIR` | Directory for markdown test reports | `artifacts/reports` |
-| `BROWSER_SCREENSHOTS_DIR` | Directory for per-step screenshots | `artifacts/screenshots` |
-| `BROWSER_DOWNLOADS_DIR` | Directory for downloaded files | `artifacts/downloads` |
-| `APP_MEMORY_DIR` | Directory for persistent app-understanding memory | `data/app_memory` |
+| `BROWSER_REPORTS_DIR` | Directory for markdown test reports | user app data `artifacts/reports` when installed; repo-local in source checkout |
+| `BROWSER_SCREENSHOTS_DIR` | Directory for per-step screenshots | user app data `artifacts/screenshots` when installed; repo-local in source checkout |
+| `BROWSER_DOWNLOADS_DIR` | Directory for downloaded files | user app data `artifacts/downloads` when installed; repo-local in source checkout |
+| `APP_MEMORY_DIR` | Directory for persistent app-understanding memory | user app data `data/app_memory` when installed; repo-local in source checkout |
 
 Reference template:
 

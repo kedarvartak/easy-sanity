@@ -1,1 +1,10 @@
-{}
+{
+  "loopr_dev1": {
+    "description": "Loopr dev1 login profile",
+    "variables": {
+      "loopr_url": "https://dev1.aws.loopr.ai/login",
+      "loopr_email": "admin@loopr.ai",
+      "loopr_password": "HQZD3Csbi@s^"
+    }
+  }
+}

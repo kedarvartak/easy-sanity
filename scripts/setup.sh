@@ -10,7 +10,7 @@ if ! command -v uv >/dev/null 2>&1; then
 fi
 
 uv sync
-uv run playwright install chromium
+uv run easy-sanity install-browser
 
 echo
 echo "Setup complete."

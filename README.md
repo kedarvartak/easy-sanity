@@ -16,7 +16,34 @@ This is a free alternative to paid browser automation services like use-browser 
 
 ## Installation
 
-### Quick Start
+Full guide: [Installation Guide](/home/kedar/Desktop/Projects/use_browser/docs/installation.md:1)
+
+### Quick Start Without Cloning
+
+```bash
+uvx easy-sanity install-browser
+```
+
+Then configure your IDE to launch:
+
+```bash
+uvx easy-sanity
+```
+
+### Permanent Install With `pipx`
+
+```bash
+pipx install easy-sanity
+easy-sanity install-browser
+```
+
+Then configure your IDE to launch:
+
+```bash
+easy-sanity
+```
+
+### From This Repo During Development
 
 ```bash
 ./scripts/setup.sh
@@ -28,7 +55,7 @@ This will:
 - install the Playwright Chromium browser
 - leave you ready to connect the MCP server in your IDE
 
-### 1. Install dependencies manually
+### 1. Install from source manually
 
 ```bash
 # Install uv if you haven't already
@@ -53,13 +80,8 @@ This project reads actual environment variables, so for IDE MCP setups the easie
 {
   "mcpServers": {
     "easy-sanity": {
-      "command": "uv",
-      "args": [
-        "--directory",
-        "/absolute/path/to/use_browser",
-        "run",
-        "main.py"
-      ],
+      "command": "uvx",
+      "args": ["easy-sanity"],
       "env": {
         "BROWSER_HEADLESS_DEFAULT": "true",
         "BROWSER_DEFAULT_TIMEOUT_MS": "45000",
@@ -78,13 +100,8 @@ This project reads actual environment variables, so for IDE MCP setups the easie
 {
   "mcpServers": {
     "browser-automation": {
-      "command": "uv",
-      "args": [
-        "--directory",
-        "/absolute/path/to/use_browser",
-        "run",
-        "main.py"
-      ],
+      "command": "easy-sanity",
+      "args": [],
       "env": {
         "BROWSER_HEADLESS_DEFAULT": "true",
         "BROWSER_DEFAULT_TIMEOUT_MS": "45000"
@@ -99,13 +116,8 @@ This project reads actual environment variables, so for IDE MCP setups the easie
 {
   "mcpServers": {
     "browser-automation": {
-      "command": "uv",
-      "args": [
-        "--directory",
-        "/absolute/path/to/use_browser",
-        "run",
-        "main.py"
-      ],
+      "command": "easy-sanity",
+      "args": [],
       "env": {
         "BROWSER_HEADLESS_DEFAULT": "true",
         "BROWSER_DEFAULT_TIMEOUT_MS": "45000"
@@ -120,13 +132,8 @@ This project reads actual environment variables, so for IDE MCP setups the easie
 {
   "mcpServers": {
     "browser-automation": {
-      "command": "uv",
-      "args": [
-        "--directory",
-        "/absolute/path/to/use_browser",
-        "run",
-        "main.py"
-      ],
+      "command": "easy-sanity",
+      "args": [],
       "env": {
         "BROWSER_HEADLESS_DEFAULT": "true",
         "BROWSER_DEFAULT_TIMEOUT_MS": "45000"
@@ -155,6 +162,8 @@ export BROWSER_DEFAULT_TIMEOUT_MS=45000
 - `BROWSER_SCREENSHOTS_DIR`: where per-step screenshots are written
 - `BROWSER_DOWNLOADS_DIR`: where browser-triggered downloads are stored
 - `APP_MEMORY_DIR`: where persistent app-understanding memory is stored
+
+Installed builds default to a user-owned app data directory. Source-checkout runs keep using the repo-local `data/` and `artifacts/` folders unless you override them with env vars.
 
 If you want a reusable template, start from [.env.example](/home/kedar/Desktop/Projects/use_browser/.env.example:1).
 

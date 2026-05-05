@@ -5,7 +5,7 @@ import re
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.prompts import Prompt
 
-from config.settings import PROFILES_FILE, SAMPLE_TASKS_FILE, TASKS_FILE
+from config.settings import PROFILES_FILE, TASKS_FILE, sample_tasks_resource_text
 from prompts import TASK_EXECUTION_PROMPT_TEMPLATE, TASK_WIZARD_PROMPT_TEMPLATE
 
 
@@ -15,37 +15,36 @@ PLACEHOLDER_PATTERN = re.compile(r"{{\s*([a-zA-Z0-9_]+)\s*}}")
 def load_tasks_from_disk() -> dict[str, dict]:
     """Load all saved tasks from the data task store."""
     if TASKS_FILE.exists():
-        with open(TASKS_FILE) as f:
+        with open(TASKS_FILE, encoding="utf-8") as f:
             return json.load(f)
     return {}
 
 
 def save_tasks_to_disk(tasks: dict[str, dict]) -> None:
     """Persist all tasks to the data task store."""
-    with open(TASKS_FILE, "w") as f:
+    TASKS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(TASKS_FILE, "w", encoding="utf-8") as f:
         json.dump(tasks, f, indent=2)
 
 
 def load_profiles_from_disk() -> dict[str, dict]:
     """Load saved environment profiles from the data profile store."""
     if PROFILES_FILE.exists():
-        with open(PROFILES_FILE) as f:
+        with open(PROFILES_FILE, encoding="utf-8") as f:
             return json.load(f)
     return {}
 
 
 def save_profiles_to_disk(profiles: dict[str, dict]) -> None:
     """Persist environment profiles to the data profile store."""
-    with open(PROFILES_FILE, "w") as f:
+    PROFILES_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(PROFILES_FILE, "w", encoding="utf-8") as f:
         json.dump(profiles, f, indent=2)
 
 
 def load_sample_tasks() -> dict[str, dict]:
     """Load bundled sample tasks for onboarding."""
-    if SAMPLE_TASKS_FILE.exists():
-        with open(SAMPLE_TASKS_FILE) as f:
-            return json.load(f)
-    return {}
+    return json.loads(sample_tasks_resource_text())
 
 
 def extract_placeholders(prompt: str) -> list[str]:

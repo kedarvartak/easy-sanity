@@ -1,13 +1,8 @@
 {
   "mcpServers": {
     "browser-automation": {
-      "command": "uv",
-      "args": [
-        "--directory",
-        "/absolute/path/to/use_browser",
-        "run",
-        "main.py"
-      ],
+      "command": "uvx",
+      "args": ["easy-sanity"],
       "env": {
         "BROWSER_HEADLESS_DEFAULT": "true",
         "BROWSER_DEFAULT_TIMEOUT_MS": "45000",

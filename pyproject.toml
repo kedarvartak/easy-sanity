@@ -1,5 +1,5 @@
 [project]
-name = "use-browser"
+name = "easy-sanity"
 version = "0.1.0"
 description = "Free browser automation MCP server using IDE LLMs - no API keys required!"
 readme = "README.md"
@@ -7,4 +7,18 @@ requires-python = ">=3.12"
 dependencies = [
     "mcp>=1.26.0",
     "playwright>=1.58.0",
+    "platformdirs>=4.2.0",
 ]
+
+[project.scripts]
+easy-sanity = "easy_sanity.cli:main"
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["easy_sanity*", "browser*", "config*", "memory*", "prompts*", "tasks*"]
+
+[tool.setuptools.package-data]
+easy_sanity = ["resources/*.json"]
