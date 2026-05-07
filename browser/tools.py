@@ -206,9 +206,7 @@ async def _resolve_clickable_by_label(browser_state: BrowserState, name: str):
 
 
 def _tab_items(browser_state: BrowserState) -> list:
-    if not browser_state.page:
-        return []
-    return browser_state.page.context.pages
+    return browser_state.list_pages()
 
 
 def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
@@ -1145,7 +1143,7 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
             return _browser_not_started_error()
 
         try:
-            cookies = await browser_state.page.context.cookies()
+            cookies = await browser_state.get_cookies()
             storage = await browser_state.page.evaluate(
                 """
                 () => ({
@@ -1753,10 +1751,9 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
             return _browser_not_started_error()
 
         try:
-            page = await browser_state.page.context.new_page()
-            browser_state.set_active_page(page)
+            page = await browser_state.new_page()
             if url:
-                await browser_state.page.goto(url, wait_until="networkidle")
+                await page.goto(url, wait_until="networkidle")
             tabs = _tab_items(browser_state)
             index = tabs.index(browser_state.page)
             await _record_action(browser_state, "open_tab", "success", url=url or "about:blank", tab_index=index)

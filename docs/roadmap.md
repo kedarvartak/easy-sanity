@@ -16,6 +16,27 @@ The goal should be to make the agent:
 
 In short, the project should move from prompt-driven browser control to a true autonomous sanity testing workflow.
 
+## Pending Feature: Browser Harness Integration
+
+An important pending direction is to add an optional `browser-harness` execution mode on top of the existing MCP testing agent.
+
+This should be treated as an additive capability, not a replacement for the current Playwright-backed toolchain.
+
+Why this matters:
+
+- `browser-harness` gives the agent a thin CDP path to a real Chrome session
+- it allows helper logic to evolve during execution
+- it supports reusable domain skills and interaction skills
+- it is a better fit for fluid, hard-to-script browser workflows
+
+Why it should remain optional:
+
+- Easy Sanity still needs explicit assertions, evidence capture, reports, and repeatable pass/fail outcomes
+- raw browser freedom is useful, but it does not replace test orchestration
+- the current Playwright stack remains valuable for deterministic, local, and headless sanity runs
+
+See [Browser Harness Integration Roadmap](/home/kedar/Desktop/Projects/use_browser/docs/browser-harness-roadmap.md:1).
+
 ## Make It Easier To Use
 
 ### 1. Add higher-level tools
@@ -258,6 +279,14 @@ This would let the LLM build a proper test narrative instead of returning an inf
 - add role/label-based actions
 - add smarter waits
 - add structured error messages
+
+### Phase 5: Adaptive Browser Mode With `browser-harness`
+
+- integrate `browser-harness` as an optional backend that attaches to the user's real Chrome session
+- preserve the existing MCP tool contract while allowing selected tools to delegate to `browser-harness`
+- add a controlled skill-sync flow for domain skills and helper learnings
+- keep Easy Sanity responsible for assertions, reports, action history, and final pass/fail classification
+- add setup, safety, and recovery rules for real-browser attachment mode
 - remove hardcoded secrets from saved examples
 
 ### Phase 2: Reusability

@@ -1,19 +1,25 @@
 from pathlib import Path
 from typing import Optional
 
-from playwright.async_api import Browser, Page, async_playwright
+from playwright.async_api import Browser, Page
 
+from browser.backends import BrowserBackend, BrowserEventHooks, PlaywrightBackend
 from browser.report_manager import ensure_directory, report_filename, slugify, utc_timestamp_slug
-from config.settings import browser_default_timeout_ms, downloads_dir, reports_dir, screenshots_dir
+from config.settings import downloads_dir, reports_dir, screenshots_dir
 
 
 class BrowserState:
     """Manages browser lifecycle across tool calls."""
 
     def __init__(self):
-        self.playwright = None
-        self.browser: Optional[Browser] = None
-        self.page: Optional[Page] = None
+        self.backend: BrowserBackend = PlaywrightBackend(
+            BrowserEventHooks(
+                on_console=self._handle_console_message,
+                on_request=self._handle_request_started,
+                on_response=self._handle_response_received,
+                on_request_failed=self._handle_request_failed,
+            )
+        )
         self.task_description: str = ""
         self.action_history: list = []
         self.session_slug: str = ""
@@ -28,25 +34,27 @@ class BrowserState:
         self.failed_requests: list[dict] = []
 
     async def initialize(self, headless: bool = False):
-        if self.browser is None:
-            self.playwright = await async_playwright().start()
-            self.browser = await self.playwright.chromium.launch(headless=headless)
-            page = await self.browser.new_page()
-            self.set_active_page(page)
+        await self.backend.initialize(headless=headless)
+
+    @property
+    def browser(self) -> Browser | None:
+        return self.backend.browser
+
+    @property
+    def page(self) -> Page | None:
+        return self.backend.page
 
     def set_active_page(self, page: Page) -> None:
-        self.page = page
-        self.page.set_default_timeout(browser_default_timeout_ms())
-        self._attach_page_listeners()
+        self.backend.set_active_page(page)
 
-    def _attach_page_listeners(self) -> None:
-        if not self.page:
-            return
+    def list_pages(self) -> list[Page]:
+        return self.backend.list_pages()
 
-        self.page.on("console", self._handle_console_message)
-        self.page.on("request", self._handle_request_started)
-        self.page.on("response", self._handle_response_received)
-        self.page.on("requestfailed", self._handle_request_failed)
+    async def new_page(self) -> Page:
+        return await self.backend.new_page()
+
+    async def get_cookies(self) -> list[dict]:
+        return await self.backend.get_cookies()
 
     def _handle_console_message(self, message) -> None:
         entry = {
@@ -117,15 +125,7 @@ class BrowserState:
         self.last_domain_summary = None
 
     async def cleanup(self):
-        if self.page:
-            await self.page.close()
-            self.page = None
-        if self.browser:
-            await self.browser.close()
-            self.browser = None
-        if self.playwright:
-            await self.playwright.stop()
-            self.playwright = None
+        await self.backend.cleanup()
         self.action_history = []
         self.task_description = ""
         self.session_slug = ""

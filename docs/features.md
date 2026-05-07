@@ -125,6 +125,31 @@ This helps with:
 - understanding what happened
 - summarizing the final result
 
+## Pending Feature: Adaptive Real-Browser Mode
+
+A pending feature is support for `browser-harness` as an optional execution backend.
+
+This would let the agent attach to a real Chrome session through the open source harness while Easy Sanity continues to provide:
+
+- MCP tool orchestration
+- assertions
+- semantic inspection
+- evidence capture
+- reports
+- reusable tasks
+
+The intent is not to replace the current Playwright runtime.
+It is to add a stronger option for workflows where rigid browser automation is too brittle.
+
+Planned outcomes:
+
+- backend selection between `playwright` and `browser-harness`
+- adaptive real-browser execution for difficult flows
+- harness-aware task definitions and documentation
+- preserved pass/fail reporting and artifact generation
+
+See [Browser Harness Integration Roadmap](/home/kedar/Desktop/Projects/use_browser/docs/browser-harness-roadmap.md:1).
+
 ## Practical Use Cases
 
 This agent is most useful for:
