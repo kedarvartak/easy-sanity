@@ -284,13 +284,18 @@ This section documents every MCP tool currently exposed by the agent.
 
 ## Browser Session Tools
 
-### `browser_start(task, headless=None)`
+### `browser_start(task, headless=None, backend="")`
 
 Starts a new browser session.
 
 Use it to:
 
 - begin a browser workflow
+- optionally select a browser backend such as `playwright` or `browser-harness`
+
+### `browser_list_backends()`
+
+Returns supported browser backends, the configured default, the currently active backend, and `browser-harness` availability details.
 - optionally override headless mode
 - initialize report, screenshot, and download directories for the session
 

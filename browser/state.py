@@ -3,8 +3,9 @@ from typing import Optional
 
 from playwright.async_api import Browser, Page
 
-from browser.backends import BrowserBackend, BrowserEventHooks, PlaywrightBackend
+from browser.backends import BrowserBackend, BrowserEventHooks, PlaywrightBackend, create_backend
 from browser.report_manager import ensure_directory, report_filename, slugify, utc_timestamp_slug
+from config.settings import browser_backend_default
 from config.settings import downloads_dir, reports_dir, screenshots_dir
 
 
@@ -20,6 +21,7 @@ class BrowserState:
                 on_request_failed=self._handle_request_failed,
             )
         )
+        self.backend_name: str = "playwright"
         self.task_description: str = ""
         self.action_history: list = []
         self.session_slug: str = ""
@@ -33,8 +35,25 @@ class BrowserState:
         self.network_requests: list[dict] = []
         self.failed_requests: list[dict] = []
 
-    async def initialize(self, headless: bool = False):
+    async def initialize(self, headless: bool = False, backend_name: Optional[str] = None):
+        self.ensure_backend(backend_name)
         await self.backend.initialize(headless=headless)
+
+    def ensure_backend(self, backend_name: Optional[str] = None) -> str:
+        target_backend = backend_name or browser_backend_default()
+        if target_backend == self.backend_name:
+            return self.backend_name
+
+        if self.page:
+            raise RuntimeError(
+                f"Cannot switch browser backend from '{self.backend_name}' to '{target_backend}' while a session is active. "
+                "Call browser_stop first."
+            )
+
+        selection = create_backend(target_backend, self._event_hooks())
+        self.backend = selection.backend
+        self.backend_name = selection.name
+        return self.backend_name
 
     @property
     def browser(self) -> Browser | None:
@@ -55,6 +74,14 @@ class BrowserState:
 
     async def get_cookies(self) -> list[dict]:
         return await self.backend.get_cookies()
+
+    def _event_hooks(self) -> BrowserEventHooks:
+        return BrowserEventHooks(
+            on_console=self._handle_console_message,
+            on_request=self._handle_request_started,
+            on_response=self._handle_response_received,
+            on_request_failed=self._handle_request_failed,
+        )
 
     def _handle_console_message(self, message) -> None:
         entry = {

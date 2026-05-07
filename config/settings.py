@@ -1,4 +1,5 @@
 import os
+import shutil
 from importlib.resources import files
 from pathlib import Path
 
@@ -7,6 +8,7 @@ from platformdirs import user_data_dir
 
 APP_NAME = "easy-sanity"
 ROOT_DIR = Path(__file__).resolve().parent.parent
+SUPPORTED_BROWSER_BACKENDS = ("playwright", "browser-harness")
 
 
 def _is_source_checkout() -> bool:
@@ -83,6 +85,52 @@ def browser_default_timeout_ms() -> int:
     except ValueError:
         return 30000
     return max(1000, timeout)
+
+
+def normalize_browser_backend(value: str | None) -> str:
+    candidate = (value or "").strip().lower()
+    if candidate in {"", "default"}:
+        return "playwright"
+    if candidate in {"playwright", "browser-harness"}:
+        return candidate
+    raise ValueError(
+        f"Unsupported browser backend '{value}'. Supported backends: {', '.join(SUPPORTED_BROWSER_BACKENDS)}"
+    )
+
+
+def browser_backend_default() -> str:
+    return normalize_browser_backend(os.environ.get("BROWSER_BACKEND_DEFAULT", "playwright"))
+
+
+def supported_browser_backends() -> list[str]:
+    return list(SUPPORTED_BROWSER_BACKENDS)
+
+
+def browser_harness_enabled() -> bool:
+    value = os.environ.get("BROWSER_HARNESS_ENABLED", "").strip().lower()
+    return value in {"1", "true", "yes", "on"}
+
+
+def browser_harness_command() -> str:
+    value = os.environ.get("BROWSER_HARNESS_COMMAND", "").strip()
+    return value or "browser-harness"
+
+
+def browser_harness_repo() -> str:
+    value = os.environ.get("BROWSER_HARNESS_REPO", "").strip()
+    return value or "https://github.com/browser-use/browser-harness"
+
+
+def browser_harness_status() -> dict[str, str | bool | None]:
+    command = browser_harness_command()
+    resolved_path = shutil.which(command)
+    return {
+        "enabled": browser_harness_enabled(),
+        "command": command,
+        "path": resolved_path,
+        "available": bool(resolved_path),
+        "repo": browser_harness_repo(),
+    }
 
 
 def reports_dir() -> Path:

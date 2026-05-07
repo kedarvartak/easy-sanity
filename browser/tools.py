@@ -21,7 +21,7 @@ from browser.report_manager import (
     screenshot_filename,
 )
 from browser.state import BrowserState
-from config.settings import browser_headless_default
+from config.settings import browser_backend_default, browser_harness_status, browser_headless_default, supported_browser_backends
 from prompts import FIND_ELEMENT_RESULT_MESSAGE, FILL_FIELD_NOT_FOUND_TEMPLATE
 
 
@@ -847,20 +847,22 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
             return json.dumps({"status": "error", "message": str(e)}, indent=2)
 
     @mcp.tool()
-    async def browser_start(task: str, headless: Optional[bool] = None) -> str:
+    async def browser_start(task: str, headless: Optional[bool] = None, backend: str = "") -> str:
         """
         Start a new browser session.
 
         Args:
             task: Description of what you want to accomplish.
             headless: Run without showing the browser window. If omitted, uses config default.
+            backend: Optional browser backend. Defaults to BROWSER_BACKEND_DEFAULT or playwright.
 
         Returns:
             Confirmation with session info.
         """
         try:
             resolved_headless = browser_headless_default() if headless is None else headless
-            await browser_state.initialize(headless=resolved_headless)
+            resolved_backend = backend or browser_backend_default()
+            await browser_state.initialize(headless=resolved_headless, backend_name=resolved_backend)
             browser_state.task_description = task
             browser_state.action_history = []
             browser_state.begin_session(task)
@@ -870,6 +872,7 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                 "success",
                 task=task,
                 headless=resolved_headless,
+                backend=browser_state.backend_name,
             )
 
             return json.dumps(
@@ -878,11 +881,28 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                     "message": "Browser started",
                     "task": task,
                     "headless": resolved_headless,
+                    "backend": browser_state.backend_name,
                 },
                 indent=2,
             )
         except Exception as e:
             return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    @mcp.tool()
+    async def browser_list_backends() -> str:
+        """
+        List supported browser backends and their current availability.
+
+        Returns:
+            Backend names, defaults, and browser-harness detection details.
+        """
+        harness_status = browser_harness_status()
+        return _success_payload(
+            supported_backends=supported_browser_backends(),
+            default_backend=browser_backend_default(),
+            active_backend=browser_state.backend_name,
+            browser_harness=harness_status,
+        )
 
     @mcp.tool()
     async def browser_get_state() -> str:
@@ -2659,12 +2679,13 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
             List of all actions performed so far.
         """
         return json.dumps(
-            {
-                "status": "success",
-                "task": browser_state.task_description,
-                "session_slug": browser_state.session_slug,
-                "action_count": len(browser_state.action_history),
-                "actions": browser_state.action_history,
+                {
+                    "status": "success",
+                    "task": browser_state.task_description,
+                    "backend": browser_state.backend_name,
+                    "session_slug": browser_state.session_slug,
+                    "action_count": len(browser_state.action_history),
+                    "actions": browser_state.action_history,
                 "report_path": str(browser_state.report_path) if browser_state.report_path else None,
                 "screenshots_directory": (
                     str(browser_state.screenshots_root) if browser_state.screenshots_root else None

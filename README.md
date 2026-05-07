@@ -85,6 +85,8 @@ This project reads actual environment variables, so for IDE MCP setups the easie
       "env": {
         "BROWSER_HEADLESS_DEFAULT": "true",
         "BROWSER_DEFAULT_TIMEOUT_MS": "45000",
+        "BROWSER_BACKEND_DEFAULT": "playwright",
+        "BROWSER_HARNESS_ENABLED": "false",
         "BROWSER_REPORTS_DIR": "artifacts/reports",
         "BROWSER_SCREENSHOTS_DIR": "artifacts/screenshots",
         "BROWSER_DOWNLOADS_DIR": "artifacts/downloads",
@@ -154,10 +156,15 @@ You can set these environment variables if you want easier first-run defaults:
 ```bash
 export BROWSER_HEADLESS_DEFAULT=true
 export BROWSER_DEFAULT_TIMEOUT_MS=45000
+export BROWSER_BACKEND_DEFAULT=playwright
 ```
 
 - `BROWSER_HEADLESS_DEFAULT`: when `true`, `browser_start` runs headless unless explicitly overridden
 - `BROWSER_DEFAULT_TIMEOUT_MS`: default Playwright timeout for page actions
+- `BROWSER_BACKEND_DEFAULT`: default browser backend for `browser_start`; supported values are `playwright` and `browser-harness`
+- `BROWSER_HARNESS_ENABLED`: enables selecting `browser-harness` mode
+- `BROWSER_HARNESS_COMMAND`: optional command name for the upstream `browser-harness` executable
+- `BROWSER_HARNESS_REPO`: reference URL used in setup and error messages
 - `BROWSER_REPORTS_DIR`: where markdown reports are written
 - `BROWSER_SCREENSHOTS_DIR`: where per-step screenshots are written
 - `BROWSER_DOWNLOADS_DIR`: where browser-triggered downloads are stored
@@ -217,6 +224,18 @@ Use the browser automation MCP to:
 1. Go to Google
 2. Search for "Python tutorials"
 3. Get the top 3 result titles
+```
+
+You can also choose the backend explicitly:
+
+```text
+Call browser_start with task "Login smoke check" and backend "playwright"
+```
+
+Or inspect backend availability first:
+
+```text
+Call browser_list_backends and tell me whether browser-harness is available
 ```
 
 The AI will use these tools automatically:

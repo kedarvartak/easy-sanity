@@ -35,6 +35,8 @@ Example MCP config:
       "env": {
         "BROWSER_HEADLESS_DEFAULT": "true",
         "BROWSER_DEFAULT_TIMEOUT_MS": "45000",
+        "BROWSER_BACKEND_DEFAULT": "playwright",
+        "BROWSER_HARNESS_ENABLED": "false",
         "BROWSER_REPORTS_DIR": "artifacts/reports",
         "BROWSER_SCREENSHOTS_DIR": "artifacts/screenshots",
         "BROWSER_DOWNLOADS_DIR": "artifacts/downloads",
@@ -199,6 +201,10 @@ Useful environment variables:
 
 - `BROWSER_HEADLESS_DEFAULT`
 - `BROWSER_DEFAULT_TIMEOUT_MS`
+- `BROWSER_BACKEND_DEFAULT`
+- `BROWSER_HARNESS_ENABLED`
+- `BROWSER_HARNESS_COMMAND`
+- `BROWSER_HARNESS_REPO`
 - `BROWSER_REPORTS_DIR`
 - `BROWSER_SCREENSHOTS_DIR`
 - `BROWSER_DOWNLOADS_DIR`
