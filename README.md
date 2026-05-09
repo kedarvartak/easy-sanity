@@ -165,6 +165,12 @@ export BROWSER_BACKEND_DEFAULT=playwright
 - `BROWSER_HARNESS_ENABLED`: enables selecting `browser-harness` mode
 - `BROWSER_HARNESS_COMMAND`: optional command name for the upstream `browser-harness` executable
 - `BROWSER_HARNESS_REPO`: reference URL used in setup and error messages
+- `BROWSER_HARNESS_AUTOLAUNCH`: when `true` (default), harness mode starts a dedicated Chromium debug session if no `BU_CDP_URL` or `BU_CDP_WS` target is already configured
+- `BROWSER_HARNESS_BROWSER_PATH`: optional Chromium/Chrome executable path for harness auto-launch
+- `BROWSER_HARNESS_DEBUGGING_PORT`: preferred local CDP port for harness auto-launch; defaults to `9222`
+- `BROWSER_HARNESS_USER_DATA_DIR`: isolated profile directory used by harness auto-launch
+- `BROWSER_HARNESS_CDP_URL`: explicit HTTP DevTools endpoint passed to `browser-harness` as `BU_CDP_URL`
+- `BROWSER_HARNESS_CDP_WS`: explicit WebSocket DevTools endpoint passed to `browser-harness` as `BU_CDP_WS`
 - `BROWSER_REPORTS_DIR`: where markdown reports are written
 - `BROWSER_SCREENSHOTS_DIR`: where per-step screenshots are written
 - `BROWSER_DOWNLOADS_DIR`: where browser-triggered downloads are stored

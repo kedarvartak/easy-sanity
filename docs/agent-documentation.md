@@ -15,7 +15,8 @@ It is designed to let an IDE agent such as Codex use natural language to:
 - save reusable workflows as slash-command style tasks
 - build persistent application understanding from a target code repository
 
-In practice, Easy Sanity sits between your IDE agent and a real Chromium browser driven by Playwright.
+In practice, Easy Sanity sits between your IDE agent and a browser runtime.
+By default that runtime is Playwright, and it can also be configured to route through `browser-harness` for adaptive real-browser control.
 
 ## Core Idea
 
@@ -23,7 +24,7 @@ The agent workflow is:
 
 1. You ask the IDE agent to perform or validate a browser workflow.
 2. The IDE agent calls Easy Sanity MCP tools.
-3. Easy Sanity executes those tool calls in a local Playwright-controlled browser.
+3. Easy Sanity executes those tool calls through the selected browser backend.
 4. The IDE agent reads page state, semantic summaries, assertions, screenshots, action history, and reports to decide what to do next.
 
 This turns the IDE agent from a text-only assistant into a browser-based sanity-testing agent.
@@ -182,6 +183,13 @@ The project supports these runtime environment variables:
 |---|---|---|
 | `BROWSER_HEADLESS_DEFAULT` | Whether `browser_start` runs headless by default | `false` |
 | `BROWSER_DEFAULT_TIMEOUT_MS` | Default Playwright timeout in milliseconds | `30000` |
+| `BROWSER_HARNESS_ENABLED` | Allow selecting `browser-harness` as the backend | `false` |
+| `BROWSER_HARNESS_AUTOLAUNCH` | Auto-start a dedicated Chromium debug session for harness mode when no explicit CDP target is configured | `true` |
+| `BROWSER_HARNESS_BROWSER_PATH` | Optional Chromium/Chrome executable used for harness auto-launch | auto-detected |
+| `BROWSER_HARNESS_DEBUGGING_PORT` | Preferred CDP port for harness auto-launch | `9222` |
+| `BROWSER_HARNESS_USER_DATA_DIR` | Isolated browser profile directory for harness auto-launch | repo-local `.local-tools/browser-harness-profile` in source checkout |
+| `BROWSER_HARNESS_CDP_URL` | Explicit HTTP DevTools endpoint forwarded to `browser-harness` as `BU_CDP_URL` | unset |
+| `BROWSER_HARNESS_CDP_WS` | Explicit WebSocket DevTools endpoint forwarded to `browser-harness` as `BU_CDP_WS` | unset |
 | `BROWSER_REPORTS_DIR` | Directory for markdown test reports | user app data `artifacts/reports` when installed; repo-local in source checkout |
 | `BROWSER_SCREENSHOTS_DIR` | Directory for per-step screenshots | user app data `artifacts/screenshots` when installed; repo-local in source checkout |
 | `BROWSER_DOWNLOADS_DIR` | Directory for downloaded files | user app data `artifacts/downloads` when installed; repo-local in source checkout |
@@ -296,6 +304,28 @@ Use it to:
 ### `browser_list_backends()`
 
 Returns supported browser backends, the configured default, the currently active backend, and `browser-harness` availability details.
+
+Current `browser-harness` support is intentionally partial, but shared state and assertion reporting are normalized so the session still behaves like Easy Sanity.
+
+The backend currently supports:
+
+- `browser_start`
+- `browser_get_state`
+- `browser_navigate`
+- `browser_click`
+- `browser_fill`
+- `browser_type`
+- `browser_extract`
+- `browser_wait`
+- `browser_wait_for_text`
+- `browser_wait_for_element`
+- `browser_wait_for_url`
+- `browser_wait_for_navigation`
+- `browser_wait_for_network_idle`
+- `browser_wait_for_disappearance`
+- core assertions such as URL, title, text, selector visibility, selector count, and input value checks
+
+Some browser tools still depend on the Playwright backend for now, especially richer tab, storage, and low-level browser inspection features.
 - optionally override headless mode
 - initialize report, screenshot, and download directories for the session
 

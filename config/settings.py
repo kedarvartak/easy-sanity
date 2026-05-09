@@ -121,6 +121,53 @@ def browser_harness_repo() -> str:
     return value or "https://github.com/browser-use/browser-harness"
 
 
+def browser_harness_cdp_url() -> str:
+    return os.environ.get("BROWSER_HARNESS_CDP_URL", "").strip()
+
+
+def browser_harness_cdp_ws() -> str:
+    return os.environ.get("BROWSER_HARNESS_CDP_WS", "").strip()
+
+
+def browser_harness_autolaunch() -> bool:
+    value = os.environ.get("BROWSER_HARNESS_AUTOLAUNCH", "true").strip().lower()
+    return value not in {"0", "false", "no", "off"}
+
+
+def browser_harness_debugging_port() -> int:
+    raw = os.environ.get("BROWSER_HARNESS_DEBUGGING_PORT", "9222").strip()
+    try:
+        port = int(raw)
+    except ValueError:
+        return 9222
+    return min(max(port, 1), 65535)
+
+
+def browser_harness_user_data_dir() -> Path:
+    return _resolve_runtime_path(
+        os.environ.get("BROWSER_HARNESS_USER_DATA_DIR", ""),
+        runtime_root_dir() / ".local-tools" / "browser-harness-profile",
+    )
+
+
+def browser_harness_browser_path() -> str:
+    configured = os.environ.get("BROWSER_HARNESS_BROWSER_PATH", "").strip()
+    if configured:
+        return configured
+
+    candidates = (
+        shutil.which("chromium-browser"),
+        shutil.which("chromium"),
+        shutil.which("google-chrome"),
+        shutil.which("google-chrome-stable"),
+        str(Path.home() / ".cache" / "ms-playwright" / "chromium-1208" / "chrome-linux64" / "chrome"),
+    )
+    for candidate in candidates:
+        if candidate and Path(candidate).exists():
+            return str(candidate)
+    return ""
+
+
 def browser_harness_status() -> dict[str, str | bool | None]:
     command = browser_harness_command()
     resolved_path = shutil.which(command)
@@ -130,6 +177,10 @@ def browser_harness_status() -> dict[str, str | bool | None]:
         "path": resolved_path,
         "available": bool(resolved_path),
         "repo": browser_harness_repo(),
+        "cdp_url": browser_harness_cdp_url() or None,
+        "cdp_ws": browser_harness_cdp_ws() or None,
+        "autolaunch": browser_harness_autolaunch(),
+        "browser_path": browser_harness_browser_path() or None,
     }
 
 

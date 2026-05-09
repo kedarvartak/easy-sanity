@@ -29,6 +29,10 @@ def _browser_not_started_error() -> str:
     return json.dumps({"status": "error", "message": "Browser not started"}, indent=2)
 
 
+def _browser_session_started(browser_state: BrowserState) -> bool:
+    return browser_state.has_active_session()
+
+
 def _sanitize_recorded_details(action: str, details: dict) -> dict:
     sanitized = {}
     for key, value in details.items():
@@ -79,6 +83,26 @@ async def _record_action(browser_state: BrowserState, action: str, status: str =
                 browser_state.step_counter, action, status
             )
             await browser_state.page.screenshot(path=str(screenshot_path), type="png", full_page=False)
+    elif browser_state.is_browser_harness():
+        try:
+            harness_state = await browser_state.harness_backend().get_state()
+            page_info = harness_state.get("page", {})
+            current_url = str(page_info.get("url", ""))
+            current_title = str(page_info.get("title", ""))
+            domain_summary = harness_state.get("semantic_summary", {}) or None
+            change_summary = summarize_domain_changes(browser_state.last_domain_summary, domain_summary) if domain_summary else []
+            browser_state.last_domain_summary = domain_summary
+
+            screenshot_b64 = harness_state.get("screenshot_base64", "")
+            if screenshot_b64 and browser_state.screenshots_root:
+                ensure_directory(browser_state.screenshots_root)
+                screenshot_path = browser_state.screenshots_root / screenshot_filename(
+                    browser_state.step_counter, action, status
+                )
+                screenshot_path.write_bytes(base64.b64decode(screenshot_b64))
+        except Exception:
+            domain_summary = None
+            change_summary = []
 
     entry = {
         "step": browser_state.step_counter,
@@ -205,6 +229,68 @@ async def _resolve_clickable_by_label(browser_state: BrowserState, name: str):
     return None
 
 
+async def _get_page_info(browser_state: BrowserState) -> dict[str, str]:
+    if browser_state.is_browser_harness():
+        page_info = (await browser_state.harness_backend().get_state()).get("page", {})
+        return {
+            "url": str(page_info.get("url", "")),
+            "title": str(page_info.get("title", "")),
+        }
+
+    page = browser_state.page
+    if page is None:
+        return {"url": "", "title": ""}
+    return {
+        "url": page.url,
+        "title": await page.title(),
+    }
+
+
+async def _get_visible_text(browser_state: BrowserState) -> str:
+    if browser_state.is_browser_harness():
+        return str((await browser_state.harness_backend().get_state()).get("visible_text", "") or "")
+
+    page = browser_state.page
+    if page is None:
+        return ""
+    return await page.locator("body").inner_text()
+
+
+async def _inspect_selector(browser_state: BrowserState, selector: str) -> dict[str, object]:
+    if browser_state.is_browser_harness():
+        return await browser_state.harness_backend().inspect_selector(selector)
+
+    page = browser_state.page
+    if page is None:
+        return {"count": 0, "visible": False, "enabled": False, "value": "", "text": ""}
+
+    locator = page.locator(selector)
+    count = await locator.count()
+    if count == 0:
+        return {"count": 0, "visible": False, "enabled": False, "value": "", "text": ""}
+
+    first = locator.first
+    value = ""
+    try:
+        value = await first.input_value()
+    except Exception:
+        value = ""
+
+    text = ""
+    try:
+        text = await first.inner_text()
+    except Exception:
+        text = ""
+
+    return {
+        "count": count,
+        "visible": await first.is_visible(),
+        "enabled": await first.is_enabled(),
+        "value": value,
+        "text": text,
+    }
+
+
 def _tab_items(browser_state: BrowserState) -> list:
     return browser_state.list_pages()
 
@@ -221,11 +307,14 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
         Returns:
             Assertion result with pass/fail details.
         """
-        if not browser_state.page:
+        if not _browser_session_started(browser_state):
             return _browser_not_started_error()
 
         try:
-            current_url = browser_state.page.url
+            if browser_state.is_browser_harness():
+                current_url = (await browser_state.harness_backend().get_state()).get("page", {}).get("url", "")
+            else:
+                current_url = browser_state.page.url
             passed = expected_text in current_url
             await _record_action(
                 browser_state,
@@ -261,12 +350,12 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
         Returns:
             Assertion result with pass/fail details.
         """
-        if not browser_state.page:
+        if not _browser_session_started(browser_state):
             return _browser_not_started_error()
 
         try:
-            locator = browser_state.page.get_by_text(text, exact=False).first
-            passed = await locator.count() > 0 and await locator.is_visible()
+            visible_text = await _get_visible_text(browser_state)
+            passed = text in visible_text
             await _record_action(
                 browser_state,
                 "assert_text_visible",
@@ -299,13 +388,12 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
         Returns:
             Assertion result with pass/fail details.
         """
-        if not browser_state.page:
+        if not _browser_session_started(browser_state):
             return _browser_not_started_error()
 
         try:
-            locator = browser_state.page.get_by_text(text, exact=False).first
-            visible = await locator.count() > 0 and await locator.is_visible()
-            passed = not visible
+            visible_text = await _get_visible_text(browser_state)
+            passed = text not in visible_text
             await _record_action(
                 browser_state,
                 "assert_text_not_visible",
@@ -338,11 +426,11 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
         Returns:
             Assertion result with pass/fail details.
         """
-        if not browser_state.page:
+        if not _browser_session_started(browser_state):
             return _browser_not_started_error()
 
         try:
-            count = await browser_state.page.locator(selector).count()
+            count = int((await _inspect_selector(browser_state, selector)).get("count", 0))
             passed = count > 0
             await _record_action(
                 browser_state,
@@ -379,12 +467,12 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
         Returns:
             Assertion result with pass/fail details.
         """
-        if not browser_state.page:
+        if not _browser_session_started(browser_state):
             return _browser_not_started_error()
 
         try:
-            locator = browser_state.page.locator(selector).first
-            count = await locator.count()
+            element = await _inspect_selector(browser_state, selector)
+            count = int(element.get("count", 0))
             if count == 0:
                 await _record_action(
                     browser_state,
@@ -400,7 +488,7 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                     selector=selector,
                 )
 
-            enabled = await locator.is_enabled()
+            enabled = bool(element.get("enabled", False))
             await _record_action(
                 browser_state,
                 "assert_element_enabled",
@@ -433,11 +521,11 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
         Returns:
             Assertion result with pass/fail details.
         """
-        if not browser_state.page:
+        if not _browser_session_started(browser_state):
             return _browser_not_started_error()
 
         try:
-            title = await browser_state.page.title()
+            title = (await _get_page_info(browser_state)).get("title", "")
             passed = expected_text in title
             await _record_action(
                 browser_state,
@@ -474,11 +562,11 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
         Returns:
             Assertion result with pass/fail details.
         """
-        if not browser_state.page:
+        if not _browser_session_started(browser_state):
             return _browser_not_started_error()
 
         try:
-            actual = await browser_state.page.locator(selector).count()
+            actual = int((await _inspect_selector(browser_state, selector)).get("count", 0))
             passed = actual == expected
             await _record_action(
                 browser_state,
@@ -518,12 +606,12 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
         Returns:
             Assertion result with pass/fail details.
         """
-        if not browser_state.page:
+        if not _browser_session_started(browser_state):
             return _browser_not_started_error()
 
         try:
-            locator = browser_state.page.locator(selector).first
-            passed = await locator.count() > 0 and await locator.is_visible()
+            element = await _inspect_selector(browser_state, selector)
+            passed = int(element.get("count", 0)) > 0 and bool(element.get("visible", False))
             await _record_assertion_result(browser_state, "assert_element_visible", passed, selector=selector)
             if passed:
                 return _assertion_success(
@@ -550,13 +638,13 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
         Returns:
             Assertion result with pass/fail details.
         """
-        if not browser_state.page:
+        if not _browser_session_started(browser_state):
             return _browser_not_started_error()
 
         try:
-            locator = browser_state.page.locator(selector).first
-            count = await locator.count()
-            hidden = count == 0 or not await locator.is_visible()
+            element = await _inspect_selector(browser_state, selector)
+            count = int(element.get("count", 0))
+            hidden = count == 0 or not bool(element.get("visible", False))
             await _record_assertion_result(
                 browser_state,
                 "assert_element_hidden",
@@ -589,12 +677,11 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
         Returns:
             Assertion result with actual and expected values.
         """
-        if not browser_state.page:
+        if not _browser_session_started(browser_state):
             return _browser_not_started_error()
 
         try:
-            locator = browser_state.page.locator(selector).first
-            actual = await locator.input_value()
+            actual = str((await _inspect_selector(browser_state, selector)).get("value", ""))
             passed = actual == expected
             await _record_assertion_result(
                 browser_state,
@@ -633,11 +720,11 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
         Returns:
             Assertion result with the actual URL.
         """
-        if not browser_state.page:
+        if not _browser_session_started(browser_state):
             return _browser_not_started_error()
 
         try:
-            current_url = browser_state.page.url
+            current_url = (await _get_page_info(browser_state)).get("url", "")
             passed = current_url == expected_url
             await _record_assertion_result(
                 browser_state,
@@ -673,11 +760,11 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
         Returns:
             Assertion result with pass/fail details.
         """
-        if not browser_state.page:
+        if not _browser_session_started(browser_state):
             return _browser_not_started_error()
 
         try:
-            body_text = await browser_state.page.locator("body").inner_text()
+            body_text = await _get_visible_text(browser_state)
             passed = text in body_text
             await _record_assertion_result(
                 browser_state,
@@ -710,11 +797,11 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
         Returns:
             Assertion result with pass/fail details.
         """
-        if not browser_state.page:
+        if not _browser_session_started(browser_state):
             return _browser_not_started_error()
 
         try:
-            body_text = await browser_state.page.locator("body").inner_text()
+            body_text = await _get_visible_text(browser_state)
             matched = re.search(pattern, body_text, re.MULTILINE) is not None
             await _record_assertion_result(
                 browser_state,
@@ -912,7 +999,7 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
         Returns:
             JSON with page state including screenshot_base64 (PNG).
         """
-        if not browser_state.page:
+        if not _browser_session_started(browser_state):
             return json.dumps(
                 {
                     "status": "error",
@@ -922,6 +1009,33 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
             )
 
         try:
+            if browser_state.is_browser_harness():
+                harness_state = await browser_state.harness_backend().get_state()
+                domain_summary = harness_state.get("semantic_summary", {}) or {}
+                route_context = infer_route_context(domain_summary) if domain_summary else {}
+                change_summary = summarize_domain_changes(browser_state.last_domain_summary, domain_summary)
+                browser_state.last_domain_summary = domain_summary or None
+                page_info = harness_state.get("page", {})
+
+                return json.dumps(
+                    {
+                        "status": "success",
+                        "backend": browser_state.backend_name,
+                        "url": page_info.get("url", ""),
+                        "title": page_info.get("title", ""),
+                        "visible_text": harness_state.get("visible_text", ""),
+                        "interactive_elements": (harness_state.get("interactive_elements", []) or [])[:20],
+                        "semantic_summary": domain_summary,
+                        "semantic_summary_text": summarize_domain_summary(domain_summary) if domain_summary else "",
+                        "route_context": route_context,
+                        "change_summary": change_summary,
+                        "screenshot_base64": harness_state.get("screenshot_base64", ""),
+                        "action_count": len(browser_state.action_history),
+                        "task": browser_state.task_description,
+                    },
+                    indent=2,
+                )
+
             url = browser_state.page.url
             title = await browser_state.page.title()
 
@@ -970,6 +1084,7 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
             return json.dumps(
                 {
                     "status": "success",
+                    "backend": browser_state.backend_name,
                     "url": url,
                     "title": title,
                     "visible_text": visible_text,
@@ -1205,10 +1320,23 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
         Returns:
             Confirmation with new page title and URL.
         """
-        if not browser_state.page:
+        if not _browser_session_started(browser_state):
             return _browser_not_started_error()
 
         try:
+            if browser_state.is_browser_harness():
+                page_info = await browser_state.harness_backend().navigate(url)
+                await _record_action(browser_state, "navigate", "success", target_url=url)
+                return json.dumps(
+                    {
+                        "status": "success",
+                        "message": f"Navigated to {url}",
+                        "title": page_info.get("title", ""),
+                        "url": page_info.get("url", url),
+                    },
+                    indent=2,
+                )
+
             await browser_state.page.goto(url, wait_until="networkidle")
             title = await browser_state.page.title()
 
@@ -1475,10 +1603,32 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
         Returns:
             Confirmation of which matching strategy was used.
         """
-        if not browser_state.page:
+        if not _browser_session_started(browser_state):
             return _browser_not_started_error()
 
         try:
+            if browser_state.is_browser_harness():
+                result = await browser_state.harness_backend().fill(field=field, text=text, press_enter=press_enter)
+                field_result = result.get("field", {})
+                await _record_action(
+                    browser_state,
+                    "fill",
+                    "success",
+                    field=field,
+                    strategy=field_result.get("matched_by", ""),
+                    text=text,
+                )
+                return json.dumps(
+                    {
+                        "status": "success",
+                        "message": f"Filled field '{field}'",
+                        "field": field,
+                        "matched_by": field_result.get("matched_by", ""),
+                        "pressed_enter": press_enter,
+                    },
+                    indent=2,
+                )
+
             resolved = await _resolve_field_locator(browser_state, field)
             if not resolved:
                 return json.dumps(
@@ -1900,10 +2050,21 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
         Returns:
             Confirmation when the text becomes visible.
         """
-        if not browser_state.page:
+        if not _browser_session_started(browser_state):
             return _browser_not_started_error()
 
         try:
+            if browser_state.is_browser_harness():
+                await browser_state.harness_backend().wait_for_text(text=text, timeout_ms=timeout_ms)
+                await _record_action(
+                    browser_state,
+                    "wait_for_text",
+                    "success",
+                    text=text,
+                    timeout_ms=timeout_ms,
+                )
+                return _success_payload(message=f"Text became visible: {text}", text=text, timeout_ms=timeout_ms)
+
             await browser_state.page.get_by_text(text, exact=False).first.wait_for(timeout=timeout_ms)
             await _record_action(
                 browser_state,
@@ -1929,10 +2090,31 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
         Returns:
             Confirmation when the element reaches the desired state.
         """
-        if not browser_state.page:
+        if not _browser_session_started(browser_state):
             return _browser_not_started_error()
 
         try:
+            if browser_state.is_browser_harness():
+                await browser_state.harness_backend().wait_for_element(
+                    selector=selector,
+                    state=state,
+                    timeout_ms=timeout_ms,
+                )
+                await _record_action(
+                    browser_state,
+                    "wait_for_element",
+                    "success",
+                    selector=selector,
+                    state=state,
+                    timeout_ms=timeout_ms,
+                )
+                return _success_payload(
+                    message=f"Element reached state '{state}'",
+                    selector=selector,
+                    state=state,
+                    timeout_ms=timeout_ms,
+                )
+
             await browser_state.page.locator(selector).first.wait_for(state=state, timeout=timeout_ms)
             await _record_action(
                 browser_state,
@@ -1963,10 +2145,27 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
         Returns:
             Confirmation with the matched URL.
         """
-        if not browser_state.page:
+        if not _browser_session_started(browser_state):
             return _browser_not_started_error()
 
         try:
+            if browser_state.is_browser_harness():
+                result = await browser_state.harness_backend().wait_for_url(pattern=pattern, timeout_ms=timeout_ms)
+                current_page = result.get("page", {})
+                await _record_action(
+                    browser_state,
+                    "wait_for_url",
+                    "success",
+                    pattern=pattern,
+                    timeout_ms=timeout_ms,
+                )
+                return _success_payload(
+                    message=f"URL matched pattern '{pattern}'",
+                    pattern=pattern,
+                    current_url=current_page.get("url", ""),
+                    timeout_ms=timeout_ms,
+                )
+
             await browser_state.page.wait_for_url(f"**{pattern}**", timeout=timeout_ms)
             await _record_action(
                 browser_state,
@@ -1995,10 +2194,25 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
         Returns:
             Confirmation with the resulting URL.
         """
-        if not browser_state.page:
+        if not _browser_session_started(browser_state):
             return _browser_not_started_error()
 
         try:
+            if browser_state.is_browser_harness():
+                result = await browser_state.harness_backend().wait_for_navigation(timeout_ms=timeout_ms)
+                current_page = result.get("page", {})
+                await _record_action(
+                    browser_state,
+                    "wait_for_navigation",
+                    "success",
+                    timeout_ms=timeout_ms,
+                )
+                return _success_payload(
+                    message="Navigation completed",
+                    current_url=current_page.get("url", ""),
+                    timeout_ms=timeout_ms,
+                )
+
             await browser_state.page.wait_for_load_state("load", timeout=timeout_ms)
             await _record_action(
                 browser_state,
@@ -2025,10 +2239,25 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
         Returns:
             Confirmation when the page becomes network-idle.
         """
-        if not browser_state.page:
+        if not _browser_session_started(browser_state):
             return _browser_not_started_error()
 
         try:
+            if browser_state.is_browser_harness():
+                result = await browser_state.harness_backend().wait_for_navigation(timeout_ms=timeout_ms)
+                current_page = result.get("page", {})
+                await _record_action(
+                    browser_state,
+                    "wait_for_network_idle",
+                    "success",
+                    timeout_ms=timeout_ms,
+                )
+                return _success_payload(
+                    message="Page reached network-idle state",
+                    current_url=current_page.get("url", ""),
+                    timeout_ms=timeout_ms,
+                )
+
             await browser_state.page.wait_for_load_state("networkidle", timeout=timeout_ms)
             await _record_action(
                 browser_state,
@@ -2056,10 +2285,29 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
         Returns:
             Confirmation when the element disappears.
         """
-        if not browser_state.page:
+        if not _browser_session_started(browser_state):
             return _browser_not_started_error()
 
         try:
+            if browser_state.is_browser_harness():
+                await browser_state.harness_backend().wait_for_element(
+                    selector=selector,
+                    state="hidden",
+                    timeout_ms=timeout_ms,
+                )
+                await _record_action(
+                    browser_state,
+                    "wait_for_disappearance",
+                    "success",
+                    selector=selector,
+                    timeout_ms=timeout_ms,
+                )
+                return _success_payload(
+                    message=f"Element disappeared: {selector}",
+                    selector=selector,
+                    timeout_ms=timeout_ms,
+                )
+
             await browser_state.page.locator(selector).first.wait_for(state="hidden", timeout=timeout_ms)
             await _record_action(
                 browser_state,
@@ -2095,10 +2343,33 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
         Returns:
             Confirmation and updated URL.
         """
-        if not browser_state.page:
+        if not _browser_session_started(browser_state):
             return _browser_not_started_error()
 
         try:
+            if browser_state.is_browser_harness():
+                result = await browser_state.harness_backend().click(
+                    selector=selector,
+                    text=text,
+                    element_index=element_index,
+                )
+                await _record_action(
+                    browser_state,
+                    "click",
+                    "success",
+                    selector=selector or "",
+                    text=text or "",
+                    element_index=element_index if element_index is not None else "",
+                )
+                return json.dumps(
+                    {
+                        "status": "success",
+                        "message": "Clicked element",
+                        "url": result.get("page", {}).get("url", ""),
+                    },
+                    indent=2,
+                )
+
             if element_index is not None:
                 await browser_state.page.evaluate(
                     f"""
@@ -2152,10 +2423,26 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
         Returns:
             Confirmation of the typing action.
         """
-        if not browser_state.page:
+        if not _browser_session_started(browser_state):
             return _browser_not_started_error()
 
         try:
+            if browser_state.is_browser_harness():
+                await browser_state.harness_backend().type(selector=selector, text=text, press_enter=press_enter)
+                await _record_action(
+                    browser_state,
+                    "type",
+                    "success",
+                    selector=selector,
+                    text=text,
+                    press_enter=press_enter,
+                )
+                return _success_payload(
+                    message=f"Typed into {selector}",
+                    selector=selector,
+                    pressed_enter=press_enter,
+                )
+
             await browser_state.page.click(selector)
             await browser_state.page.type(selector, text, delay=50)
 
@@ -2228,10 +2515,19 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
         Returns:
             The extracted text, or an error if not found.
         """
-        if not browser_state.page:
+        if not _browser_session_started(browser_state):
             return _browser_not_started_error()
 
         try:
+            if browser_state.is_browser_harness():
+                text = await browser_state.harness_backend().extract(selector)
+                await _record_action(
+                    browser_state,
+                    "extract",
+                    "success",
+                    selector=selector,
+                )
+                return json.dumps({"status": "success", "extracted_text": text}, indent=2)
             element = await browser_state.page.query_selector(selector)
             if element:
                 text = await element.inner_text()
@@ -2601,11 +2897,14 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
         Returns:
             Confirmation after waiting.
         """
-        if not browser_state.page:
+        if not _browser_session_started(browser_state):
             return _browser_not_started_error()
 
         try:
-            await asyncio.sleep(seconds)
+            if browser_state.is_browser_harness():
+                await browser_state.harness_backend().wait_seconds(seconds)
+            else:
+                await asyncio.sleep(seconds)
             await _record_action(
                 browser_state,
                 "wait",
@@ -2659,6 +2958,7 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                     "status": "success",
                     "message": "Browser session ended",
                     "task": task,
+                    "backend": browser_state.backend_name,
                     "actions_taken": len(history),
                     "action_history": history,
                     "final_result": final_summary,

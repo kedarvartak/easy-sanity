@@ -7,7 +7,6 @@ from browser.backends.factory import (
     BrowserBackendUnavailableError,
     create_backend,
 )
-from browser.backends.playwright_backend import PlaywrightBackend
 
 __all__ = [
     "BrowserBackend",
@@ -15,6 +14,5 @@ __all__ = [
     "BrowserBackendError",
     "BrowserBackendUnavailableError",
     "BrowserEventHooks",
-    "PlaywrightBackend",
     "create_backend",
 ]

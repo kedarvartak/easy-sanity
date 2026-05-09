@@ -1,27 +1,24 @@
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
-from playwright.async_api import Browser, Page
-
-from browser.backends import BrowserBackend, BrowserEventHooks, PlaywrightBackend, create_backend
+from browser.backends import BrowserBackend, BrowserEventHooks, create_backend
+from browser.backends.browser_harness_backend import BrowserHarnessBackend
 from browser.report_manager import ensure_directory, report_filename, slugify, utc_timestamp_slug
 from config.settings import browser_backend_default
 from config.settings import downloads_dir, reports_dir, screenshots_dir
+
+if TYPE_CHECKING:
+    from playwright.async_api import Browser, Page
+else:
+    Browser = Page = object
 
 
 class BrowserState:
     """Manages browser lifecycle across tool calls."""
 
     def __init__(self):
-        self.backend: BrowserBackend = PlaywrightBackend(
-            BrowserEventHooks(
-                on_console=self._handle_console_message,
-                on_request=self._handle_request_started,
-                on_response=self._handle_response_received,
-                on_request_failed=self._handle_request_failed,
-            )
-        )
-        self.backend_name: str = "playwright"
+        self.backend: BrowserBackend | BrowserHarnessBackend | None = None
+        self.backend_name: str = browser_backend_default()
         self.task_description: str = ""
         self.action_history: list = []
         self.session_slug: str = ""
@@ -37,11 +34,13 @@ class BrowserState:
 
     async def initialize(self, headless: bool = False, backend_name: Optional[str] = None):
         self.ensure_backend(backend_name)
+        if not self.backend:
+            raise RuntimeError("No browser backend is configured.")
         await self.backend.initialize(headless=headless)
 
     def ensure_backend(self, backend_name: Optional[str] = None) -> str:
         target_backend = backend_name or browser_backend_default()
-        if target_backend == self.backend_name:
+        if self.backend and target_backend == self.backend_name:
             return self.backend_name
 
         if self.page:
@@ -57,22 +56,50 @@ class BrowserState:
 
     @property
     def browser(self) -> Browser | None:
+        if not self.backend:
+            return None
         return self.backend.browser
 
     @property
     def page(self) -> Page | None:
+        if not self.backend:
+            return None
         return self.backend.page
 
+    def has_active_session(self) -> bool:
+        if self.page:
+            return True
+        if self.backend_name == "browser-harness" and isinstance(self.backend, BrowserHarnessBackend):
+            return self.backend.initialized
+        return False
+
+    def is_browser_harness(self) -> bool:
+        return self.backend_name == "browser-harness" and isinstance(self.backend, BrowserHarnessBackend)
+
+    def harness_backend(self) -> BrowserHarnessBackend:
+        if not self.is_browser_harness():
+            raise RuntimeError("Active backend is not browser-harness.")
+        assert isinstance(self.backend, BrowserHarnessBackend)
+        return self.backend
+
     def set_active_page(self, page: Page) -> None:
+        if not self.backend:
+            raise RuntimeError("No browser backend is configured.")
         self.backend.set_active_page(page)
 
     def list_pages(self) -> list[Page]:
+        if not self.backend:
+            return []
         return self.backend.list_pages()
 
     async def new_page(self) -> Page:
+        if not self.backend:
+            raise RuntimeError("No browser backend is configured.")
         return await self.backend.new_page()
 
     async def get_cookies(self) -> list[dict]:
+        if not self.backend:
+            raise RuntimeError("No browser backend is configured.")
         return await self.backend.get_cookies()
 
     def _event_hooks(self) -> BrowserEventHooks:
@@ -152,7 +179,8 @@ class BrowserState:
         self.last_domain_summary = None
 
     async def cleanup(self):
-        await self.backend.cleanup()
+        if self.backend:
+            await self.backend.cleanup()
         self.action_history = []
         self.task_description = ""
         self.session_slug = ""
