@@ -132,12 +132,23 @@ def _assertion_success(assertion: str, message: str, **details) -> str:
     return json.dumps(payload, indent=2)
 
 
-def _assertion_failure(assertion: str, message: str, **details) -> str:
+def _assertion_failure(
+    assertion: str,
+    message: str,
+    *,
+    error_category: str = "state_verification_failure",
+    recoverable: bool = False,
+    recovery_hint: str = "Inspect page state and update the expectation or wait condition.",
+    **details,
+) -> str:
     payload = {
         "status": "error",
         "assertion": assertion,
         "passed": False,
         "message": message,
+        "error_category": error_category,
+        "recoverable": recoverable,
+        "recovery_hint": recovery_hint,
     }
     payload.update(details)
     return json.dumps(payload, indent=2)
@@ -145,6 +156,148 @@ def _assertion_failure(assertion: str, message: str, **details) -> str:
 
 def _success_payload(**payload) -> str:
     payload.setdefault("status", "success")
+    return json.dumps(payload, indent=2)
+
+
+async def _capture_failure_context(browser_state: BrowserState) -> dict:
+    try:
+        if browser_state.is_browser_harness():
+            harness_state = await browser_state.harness_backend().get_state()
+            summary = harness_state.get("semantic_summary", {}) or {}
+            return {
+                "url": str(harness_state.get("page", {}).get("url", "")),
+                "title": str(harness_state.get("page", {}).get("title", "")),
+                "visible_text": str(harness_state.get("visible_text", "") or "")[:1000],
+                "semantic_summary": summary,
+                "route_context": infer_route_context(summary) if summary else {},
+            }
+        if browser_state.page:
+            summary = await capture_domain_summary(browser_state.page)
+            return {
+                "url": browser_state.page.url,
+                "title": await browser_state.page.title(),
+                "visible_text": (await browser_state.page.locator("body").inner_text())[:1000],
+                "semantic_summary": summary,
+                "route_context": infer_route_context(summary),
+            }
+    except Exception:
+        pass
+    return {}
+
+
+def _infer_failure_signals(context: dict) -> dict:
+    visible_text = str(context.get("visible_text", "") or "").lower()
+    summary = context.get("semantic_summary", {}) or {}
+    dialog_text = " ".join(item.get("text", "") for item in summary.get("dialogs", []))
+    alert_text = " ".join(item.get("text", "") for item in summary.get("alerts", []))
+    combined = " ".join(part for part in (visible_text, dialog_text.lower(), alert_text.lower()) if part)
+    url = str(context.get("url", "") or "").lower()
+
+    cookie_markers = ("cookie", "consent", "accept all", "allow all", "privacy choices")
+    auth_markers = ("sign in", "log in", "login", "authenticate", "password", "2fa", "verification code")
+
+    blocked_by_dialog = bool(summary.get("dialogs")) or any(marker in combined for marker in cookie_markers)
+    auth_gating = any(marker in combined for marker in auth_markers) or any(
+        marker in url for marker in ("/login", "/signin", "/auth", "/session")
+    )
+    return {
+        "blocked_by_dialog": blocked_by_dialog,
+        "auth_gating": auth_gating,
+    }
+
+
+def _classify_browser_error(
+    action: str,
+    error: Exception,
+    *,
+    assertion: str | None = None,
+    context: dict | None = None,
+) -> tuple[str, bool, str]:
+    message = str(error)
+    lower = message.lower()
+    signals = _infer_failure_signals(context or {})
+
+    if any(
+        marker in lower
+        for marker in (
+            "devtoolsactiveport",
+            "allow remote debugging",
+            "chrome://inspect",
+            "bu_cdp_url",
+            "debug endpoint",
+            "daemon",
+            "websocketdebuggerurl",
+            "could not find a chromium executable",
+            "no such file or directory",
+        )
+    ):
+        return ("browser_attach_failure", True, "Start or reconnect the browser debug session and retry.")
+    if any(
+        marker in lower
+        for marker in (
+            "could not resolve a clickable target",
+            "could not type",
+            "could not find a matching field",
+            "element not found",
+            "invalid tab index",
+            "provide selector, text, or element_index",
+        )
+    ):
+        return ("page_interaction_failure", True, "Verify the target selector or visible label, then retry.")
+    if signals["blocked_by_dialog"]:
+        return ("blocked_by_dialog_or_cookie_banner", True, "Dismiss the blocking dialog or cookie banner, then retry.")
+    if signals["auth_gating"]:
+        return ("login_or_auth_gating", True, "Complete the login or authentication step, then retry.")
+    if assertion or action.startswith("assert_") or "timed out waiting" in lower:
+        return ("state_verification_failure", False, "Inspect page state and update the expectation or wait condition.")
+    return ("page_interaction_failure", True, "Retry the interaction after confirming the page is ready.")
+
+
+async def _error_payload(
+    browser_state: BrowserState,
+    action: str,
+    error: Exception,
+    *,
+    assertion: str | None = None,
+    attempted_details: dict | None = None,
+    record_failure: bool = True,
+) -> str:
+    context = await _capture_failure_context(browser_state)
+    category, recoverable, recovery_hint = _classify_browser_error(
+        action,
+        error,
+        assertion=assertion,
+        context=context,
+    )
+    if record_failure and browser_state.has_active_session():
+        details = dict(attempted_details or {})
+        details.update(
+            {
+                "error_category": category,
+                "recoverable": recoverable,
+                "error_message": str(error),
+            }
+        )
+        await _record_action(browser_state, action, "failed", **details)
+
+    payload = {
+        "status": "error",
+        "message": str(error),
+        "error_category": category,
+        "recoverable": recoverable,
+        "recovery_hint": recovery_hint,
+        "backend": browser_state.backend_name,
+    }
+    if assertion:
+        payload["assertion"] = assertion
+        payload["passed"] = False
+    if context:
+        payload["url"] = context.get("url", "")
+        payload["title"] = context.get("title", "")
+        payload["route_context"] = context.get("route_context", {})
+        payload["observed_blockers"] = {
+            key: value for key, value in _infer_failure_signals(context).items() if value
+        }
     return json.dumps(payload, indent=2)
 
 
@@ -337,7 +490,13 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                 expected_text=expected_text,
             )
         except Exception as e:
-            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+            return await _error_payload(
+                browser_state,
+                "assert_url_contains",
+                e,
+                assertion="assert_url_contains",
+                attempted_details={"expected_text": expected_text},
+            )
 
     @mcp.tool()
     async def assert_text_visible(text: str) -> str:
@@ -375,7 +534,13 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                 text=text,
             )
         except Exception as e:
-            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+            return await _error_payload(
+                browser_state,
+                "assert_text_visible",
+                e,
+                assertion="assert_text_visible",
+                attempted_details={"text": text},
+            )
 
     @mcp.tool()
     async def assert_text_not_visible(text: str) -> str:
@@ -413,7 +578,13 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                 text=text,
             )
         except Exception as e:
-            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+            return await _error_payload(
+                browser_state,
+                "assert_text_not_visible",
+                e,
+                assertion="assert_text_not_visible",
+                attempted_details={"text": text},
+            )
 
     @mcp.tool()
     async def assert_element_exists(selector: str) -> str:
@@ -454,7 +625,13 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                 count=count,
             )
         except Exception as e:
-            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+            return await _error_payload(
+                browser_state,
+                "assert_element_exists",
+                e,
+                assertion="assert_element_exists",
+                attempted_details={"selector": selector},
+            )
 
     @mcp.tool()
     async def assert_element_enabled(selector: str) -> str:
@@ -508,7 +685,13 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                 selector=selector,
             )
         except Exception as e:
-            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+            return await _error_payload(
+                browser_state,
+                "assert_element_enabled",
+                e,
+                assertion="assert_element_enabled",
+                attempted_details={"selector": selector},
+            )
 
     @mcp.tool()
     async def assert_page_title(expected_text: str) -> str:
@@ -548,7 +731,13 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                 expected_text=expected_text,
             )
         except Exception as e:
-            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+            return await _error_payload(
+                browser_state,
+                "assert_page_title",
+                e,
+                assertion="assert_page_title",
+                attempted_details={"expected_text": expected_text},
+            )
 
     @mcp.tool()
     async def assert_count(selector: str, expected: int) -> str:
@@ -593,7 +782,13 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                 actual=actual,
             )
         except Exception as e:
-            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+            return await _error_payload(
+                browser_state,
+                "assert_count",
+                e,
+                assertion="assert_count",
+                attempted_details={"selector": selector, "expected": expected},
+            )
 
     @mcp.tool()
     async def assert_element_visible(selector: str) -> str:
@@ -625,7 +820,13 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                 selector=selector,
             )
         except Exception as e:
-            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+            return await _error_payload(
+                browser_state,
+                "assert_element_visible",
+                e,
+                assertion="assert_element_visible",
+                attempted_details={"selector": selector},
+            )
 
     @mcp.tool()
     async def assert_element_hidden(selector: str) -> str:
@@ -663,7 +864,13 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                 selector=selector,
             )
         except Exception as e:
-            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+            return await _error_payload(
+                browser_state,
+                "assert_element_hidden",
+                e,
+                assertion="assert_element_hidden",
+                attempted_details={"selector": selector},
+            )
 
     @mcp.tool()
     async def assert_input_value(selector: str, expected: str) -> str:
@@ -707,7 +914,13 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                 actual=actual,
             )
         except Exception as e:
-            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+            return await _error_payload(
+                browser_state,
+                "assert_input_value",
+                e,
+                assertion="assert_input_value",
+                attempted_details={"selector": selector, "expected": expected},
+            )
 
     @mcp.tool()
     async def assert_url_equals(expected_url: str) -> str:
@@ -747,7 +960,13 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                 current_url=current_url,
             )
         except Exception as e:
-            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+            return await _error_payload(
+                browser_state,
+                "assert_url_equals",
+                e,
+                assertion="assert_url_equals",
+                attempted_details={"expected_url": expected_url},
+            )
 
     @mcp.tool()
     async def assert_text_contains(text: str) -> str:
@@ -784,7 +1003,13 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                 text=text,
             )
         except Exception as e:
-            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+            return await _error_payload(
+                browser_state,
+                "assert_text_contains",
+                e,
+                assertion="assert_text_contains",
+                attempted_details={"text": text},
+            )
 
     @mcp.tool()
     async def assert_text_matches(pattern: str) -> str:
@@ -821,7 +1046,13 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                 pattern=pattern,
             )
         except Exception as e:
-            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+            return await _error_payload(
+                browser_state,
+                "assert_text_matches",
+                e,
+                assertion="assert_text_matches",
+                attempted_details={"pattern": pattern},
+            )
 
     @mcp.tool()
     async def assert_no_console_errors() -> str:
@@ -856,7 +1087,12 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                 console_errors=errors,
             )
         except Exception as e:
-            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+            return await _error_payload(
+                browser_state,
+                "assert_no_console_errors",
+                e,
+                assertion="assert_no_console_errors",
+            )
 
     @mcp.tool()
     async def assert_no_failed_requests() -> str:
@@ -891,7 +1127,12 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                 failed_requests=failures,
             )
         except Exception as e:
-            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+            return await _error_payload(
+                browser_state,
+                "assert_no_failed_requests",
+                e,
+                assertion="assert_no_failed_requests",
+            )
 
     @mcp.tool()
     async def assert_screenshot_stable(selector: str = "body") -> str:
@@ -931,7 +1172,13 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                 selector=selector,
             )
         except Exception as e:
-            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+            return await _error_payload(
+                browser_state,
+                "assert_screenshot_stable",
+                e,
+                assertion="assert_screenshot_stable",
+                attempted_details={"selector": selector},
+            )
 
     @mcp.tool()
     async def browser_start(task: str, headless: Optional[bool] = None, backend: str = "") -> str:
@@ -960,6 +1207,7 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                 task=task,
                 headless=resolved_headless,
                 backend=browser_state.backend_name,
+                **browser_state.backend_metadata(),
             )
 
             return json.dumps(
@@ -969,11 +1217,18 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                     "task": task,
                     "headless": resolved_headless,
                     "backend": browser_state.backend_name,
+                    "backend_metadata": browser_state.backend_metadata(),
                 },
                 indent=2,
             )
         except Exception as e:
-            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+            return await _error_payload(
+                browser_state,
+                "browser_start",
+                e,
+                attempted_details={"task": task, "requested_backend": backend or browser_backend_default()},
+                record_failure=False,
+            )
 
     @mcp.tool()
     async def browser_list_backends() -> str:
@@ -1101,7 +1356,7 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
             )
 
         except Exception as e:
-            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+            return await _error_payload(browser_state, "browser_get_state", e)
 
     @mcp.tool()
     async def browser_get_accessibility_tree() -> str:
@@ -1352,7 +1607,12 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                 indent=2,
             )
         except Exception as e:
-            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+            return await _error_payload(
+                browser_state,
+                "navigate",
+                e,
+                attempted_details={"target_url": url},
+            )
 
     @mcp.tool()
     async def browser_find_element(description: str, limit: int = 5) -> str:
@@ -1666,7 +1926,12 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                 indent=2,
             )
         except Exception as e:
-            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+            return await _error_payload(
+                browser_state,
+                "fill",
+                e,
+                attempted_details={"field": field, "text": text},
+            )
 
     @mcp.tool()
     async def browser_select_option(label: str, value: str) -> str:
@@ -2075,7 +2340,12 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
             )
             return _success_payload(message=f"Text became visible: {text}", text=text, timeout_ms=timeout_ms)
         except Exception as e:
-            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+            return await _error_payload(
+                browser_state,
+                "wait_for_text",
+                e,
+                attempted_details={"text": text, "timeout_ms": timeout_ms},
+            )
 
     @mcp.tool()
     async def browser_wait_for_element(selector: str, timeout_ms: int = 10000, state: str = "visible") -> str:
@@ -2131,7 +2401,12 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                 timeout_ms=timeout_ms,
             )
         except Exception as e:
-            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+            return await _error_payload(
+                browser_state,
+                "wait_for_element",
+                e,
+                attempted_details={"selector": selector, "state": state, "timeout_ms": timeout_ms},
+            )
 
     @mcp.tool()
     async def browser_wait_for_url(pattern: str, timeout_ms: int = 10000) -> str:
@@ -2181,7 +2456,12 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                 timeout_ms=timeout_ms,
             )
         except Exception as e:
-            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+            return await _error_payload(
+                browser_state,
+                "wait_for_url",
+                e,
+                attempted_details={"pattern": pattern, "timeout_ms": timeout_ms},
+            )
 
     @mcp.tool()
     async def browser_wait_for_navigation(timeout_ms: int = 10000) -> str:
@@ -2226,7 +2506,12 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                 timeout_ms=timeout_ms,
             )
         except Exception as e:
-            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+            return await _error_payload(
+                browser_state,
+                "wait_for_navigation",
+                e,
+                attempted_details={"timeout_ms": timeout_ms},
+            )
 
     @mcp.tool()
     async def browser_wait_for_network_idle(timeout_ms: int = 10000) -> str:
@@ -2271,7 +2556,12 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                 timeout_ms=timeout_ms,
             )
         except Exception as e:
-            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+            return await _error_payload(
+                browser_state,
+                "wait_for_network_idle",
+                e,
+                attempted_details={"timeout_ms": timeout_ms},
+            )
 
     @mcp.tool()
     async def browser_wait_for_disappearance(selector: str, timeout_ms: int = 10000) -> str:
@@ -2322,7 +2612,12 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                 timeout_ms=timeout_ms,
             )
         except Exception as e:
-            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+            return await _error_payload(
+                browser_state,
+                "wait_for_disappearance",
+                e,
+                attempted_details={"selector": selector, "timeout_ms": timeout_ms},
+            )
 
     @mcp.tool()
     async def browser_click(
@@ -2408,7 +2703,16 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                 indent=2,
             )
         except Exception as e:
-            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+            return await _error_payload(
+                browser_state,
+                "click",
+                e,
+                attempted_details={
+                    "selector": selector or "",
+                    "text": text or "",
+                    "element_index": element_index if element_index is not None else "",
+                },
+            )
 
     @mcp.tool()
     async def browser_type(selector: str, text: str, press_enter: bool = False) -> str:
@@ -2468,7 +2772,12 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                 indent=2,
             )
         except Exception as e:
-            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+            return await _error_payload(
+                browser_state,
+                "type",
+                e,
+                attempted_details={"selector": selector, "text": text, "press_enter": press_enter},
+            )
 
     @mcp.tool()
     async def browser_scroll(direction: Literal["down", "up"] = "down", amount: int = 500) -> str:
@@ -2540,7 +2849,12 @@ def register_browser_tools(mcp: FastMCP, browser_state: BrowserState) -> None:
                 return json.dumps({"status": "success", "extracted_text": text}, indent=2)
             return json.dumps({"status": "error", "message": f"Element not found: {selector}"}, indent=2)
         except Exception as e:
-            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+            return await _error_payload(
+                browser_state,
+                "extract",
+                e,
+                attempted_details={"selector": selector},
+            )
 
     @mcp.tool()
     async def browser_extract_table(selector: str) -> str:

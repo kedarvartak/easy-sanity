@@ -41,6 +41,7 @@ class BrowserHarnessBackend:
         self._has_opened_tab = False
         self._browser_process: subprocess.Popen[str] | None = None
         self._effective_cdp_url = cdp_url
+        self._headless = False
 
     @property
     def browser(self) -> None:
@@ -55,6 +56,7 @@ class BrowserHarnessBackend:
         return self._initialized
 
     async def initialize(self, *, headless: bool = False) -> None:
+        self._headless = headless
         await self._ensure_connection(headless=headless)
         await self._run_json(
             """
@@ -90,6 +92,27 @@ class BrowserHarnessBackend:
                 self._browser_process.kill()
                 self._browser_process.wait(timeout=5)
         self._browser_process = None
+
+    def connection_metadata(self) -> dict[str, Any]:
+        if self.cdp_ws:
+            return {
+                "connection_mode": "explicit-cdp-ws",
+                "session_profile": "external",
+                "cdp_ws": self.cdp_ws,
+            }
+        if self.cdp_url:
+            return {
+                "connection_mode": "explicit-cdp-url",
+                "session_profile": "external",
+                "cdp_url": self.cdp_url,
+            }
+        return {
+            "connection_mode": "auto-launched-chromium" if self.auto_launch else "local-profile-discovery",
+            "session_profile": "isolated" if self.auto_launch else "user-profile",
+            "cdp_url": self._effective_cdp_url or None,
+            "user_data_dir": str(self.user_data_dir) if self.user_data_dir else None,
+            "browser_path": self.browser_path or None,
+        }
 
     async def navigate(self, url: str) -> dict[str, Any]:
         navigation_call = f"new_tab({json.dumps(url)})" if not self._has_opened_tab else f"goto({json.dumps(url)})"
@@ -365,28 +388,40 @@ class BrowserHarnessBackend:
             env["BU_CDP_WS"] = self.cdp_ws
         elif self._effective_cdp_url:
             env["BU_CDP_URL"] = self._effective_cdp_url
-        process = await asyncio.create_subprocess_exec(
-            self.command,
-            "-c",
-            script,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=env,
-        )
-        stdout, stderr = await process.communicate()
-        stdout_text = stdout.decode("utf-8", errors="replace").strip()
-        stderr_text = stderr.decode("utf-8", errors="replace").strip()
-
-        if process.returncode != 0:
-            message = stderr_text or stdout_text or f"{self.command} exited with code {process.returncode}"
-            raise RuntimeError(message)
-
-        payload = self._extract_json(stdout_text)
-        if payload is None:
-            raise RuntimeError(
-                f"{self.command} returned no JSON payload. stdout={stdout_text!r} stderr={stderr_text!r}"
+        attempts = 2 if self.auto_launch and not (self.cdp_url or self.cdp_ws) else 1
+        last_message = ""
+        for attempt in range(attempts):
+            process = await asyncio.create_subprocess_exec(
+                self.command,
+                "-c",
+                script,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
             )
-        return payload
+            stdout, stderr = await process.communicate()
+            stdout_text = stdout.decode("utf-8", errors="replace").strip()
+            stderr_text = stderr.decode("utf-8", errors="replace").strip()
+
+            if process.returncode == 0:
+                payload = self._extract_json(stdout_text)
+                if payload is None:
+                    raise RuntimeError(
+                        f"{self.command} returned no JSON payload. stdout={stdout_text!r} stderr={stderr_text!r}"
+                    )
+                return payload
+
+            last_message = stderr_text or stdout_text or f"{self.command} exited with code {process.returncode}"
+            if attempt + 1 < attempts and self._is_attach_failure_message(last_message):
+                await self._recover_connection()
+                env = os.environ.copy()
+                if self.cdp_ws:
+                    env["BU_CDP_WS"] = self.cdp_ws
+                elif self._effective_cdp_url:
+                    env["BU_CDP_URL"] = self._effective_cdp_url
+                continue
+            break
+        raise RuntimeError(last_message)
 
     async def _wait_for_devtools(self, base_url: str) -> None:
         deadline = asyncio.get_running_loop().time() + 30
@@ -403,6 +438,18 @@ class BrowserHarnessBackend:
         raise RuntimeError(
             f"Timed out waiting for dedicated Chromium debug endpoint at {base_url}: {last_error}"
         )
+
+    async def _recover_connection(self) -> None:
+        if self._browser_process and self._browser_process.poll() is None:
+            self._browser_process.terminate()
+            try:
+                self._browser_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self._browser_process.kill()
+                self._browser_process.wait(timeout=5)
+        self._browser_process = None
+        self._effective_cdp_url = self.cdp_url
+        await self._ensure_connection(headless=self._headless)
 
     @staticmethod
     def _extract_json(stdout_text: str) -> Optional[dict[str, Any]]:
@@ -424,6 +471,22 @@ class BrowserHarnessBackend:
                 return bool(payload.get("webSocketDebuggerUrl"))
         except (OSError, urllib.error.URLError, json.JSONDecodeError, TimeoutError):
             return False
+
+    @staticmethod
+    def _is_attach_failure_message(message: str) -> bool:
+        lower = message.lower()
+        return any(
+            marker in lower
+            for marker in (
+                "devtoolsactiveport",
+                "allow remote debugging",
+                "bu_cdp_url",
+                "websocketdebuggerurl",
+                "debug endpoint",
+                "daemon",
+                "chrome://inspect",
+            )
+        )
 
     @staticmethod
     def _pick_debugging_port(preferred_port: int) -> int:

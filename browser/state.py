@@ -82,6 +82,11 @@ class BrowserState:
         assert isinstance(self.backend, BrowserHarnessBackend)
         return self.backend
 
+    def backend_metadata(self) -> dict:
+        if self.is_browser_harness():
+            return self.harness_backend().connection_metadata()
+        return {"connection_mode": "playwright", "session_profile": "isolated"}
+
     def set_active_page(self, page: Page) -> None:
         if not self.backend:
             raise RuntimeError("No browser backend is configured.")
